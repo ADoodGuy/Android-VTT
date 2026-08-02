@@ -44,6 +44,16 @@ enum class TokenResizeAxis {
     HEIGHT,
 }
 
+enum class TokenManipulationKind {
+    SCALE,
+    ROTATION,
+}
+
+data class ActiveTokenManipulation(
+    val tokenId: Long,
+    val kind: TokenManipulationKind,
+)
+
 data class TabletopToken(
     val id: Long,
     val name: String,
