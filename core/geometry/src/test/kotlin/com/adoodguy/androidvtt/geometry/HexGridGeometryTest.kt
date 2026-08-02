@@ -57,12 +57,49 @@ class HexGridGeometryTest {
     }
 
     @Test
+    fun pointyTopEdgeMidpointSnappingFindsNearestEdgeCenter() {
+        val grid = HexGridGeometry(10.0, HexOrientation.POINTY_TOP)
+        val expected = grid.edgeMidpoints(WorldPoint.Zero)[1]
+        val nearbyPoint = WorldPoint(expected.x + 0.12, expected.y - 0.08)
+
+        val snapped = grid.snapToEdgeMidpoint(nearbyPoint)
+
+        assertEquals(expected.x, snapped.x, absoluteTolerance = 1e-9)
+        assertEquals(expected.y, snapped.y, absoluteTolerance = 1e-9)
+    }
+
+    @Test
+    fun flatTopEdgeMidpointSnappingFindsNearestEdgeCenter() {
+        val grid = HexGridGeometry(10.0, HexOrientation.FLAT_TOP)
+        val expected = grid.edgeMidpoints(WorldPoint.Zero)[4]
+        val nearbyPoint = WorldPoint(expected.x - 0.09, expected.y + 0.11)
+
+        val snapped = grid.snapToEdgeMidpoint(nearbyPoint)
+
+        assertEquals(expected.x, snapped.x, absoluteTolerance = 1e-9)
+        assertEquals(expected.y, snapped.y, absoluteTolerance = 1e-9)
+    }
+
+    @Test
     fun nearestAnchorChoosesHexCenterWhenItIsCloser() {
         val grid = HexGridGeometry(10.0, HexOrientation.POINTY_TOP)
 
         val snapped = grid.snapToNearestAnchor(WorldPoint(0.2, -0.1))
 
         assertEquals(WorldPoint.Zero, snapped)
+    }
+
+    @Test
+    fun nearestAnchorChoosesHexEdgeMidpointWhenItIsCloser() {
+        val grid = HexGridGeometry(10.0, HexOrientation.POINTY_TOP)
+        val expected = grid.edgeMidpoints(WorldPoint.Zero)[3]
+
+        val snapped = grid.snapToNearestAnchor(
+            WorldPoint(expected.x + 0.07, expected.y - 0.05),
+        )
+
+        assertEquals(expected.x, snapped.x, absoluteTolerance = 1e-9)
+        assertEquals(expected.y, snapped.y, absoluteTolerance = 1e-9)
     }
 
     @Test

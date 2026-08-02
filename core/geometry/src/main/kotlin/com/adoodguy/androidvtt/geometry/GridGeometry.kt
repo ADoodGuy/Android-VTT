@@ -68,12 +68,35 @@ data class SquareGridGeometry(
         y = origin.y + (round((point.y - origin.y) / cellSize - 0.5) + 0.5) * cellSize,
     )
 
-    /** Chooses whichever valid anchor—cell center or intersection—is closest. */
-    fun snapToNearestAnchor(point: WorldPoint): WorldPoint {
-        val center = snapToCellCenter(point)
-        val vertex = snapToIntersection(point)
-        return if (center.distanceTo(point) <= vertex.distanceTo(point)) center else vertex
+    /** Midpoint of the nearest horizontal cell edge. */
+    fun snapToHorizontalEdgeMidpoint(point: WorldPoint): WorldPoint = WorldPoint(
+        x = origin.x + (round((point.x - origin.x) / cellSize - 0.5) + 0.5) * cellSize,
+        y = origin.y + round((point.y - origin.y) / cellSize) * cellSize,
+    )
+
+    /** Midpoint of the nearest vertical cell edge. */
+    fun snapToVerticalEdgeMidpoint(point: WorldPoint): WorldPoint = WorldPoint(
+        x = origin.x + round((point.x - origin.x) / cellSize) * cellSize,
+        y = origin.y + (round((point.y - origin.y) / cellSize - 0.5) + 0.5) * cellSize,
+    )
+
+    /** Chooses the closest horizontal or vertical edge midpoint. */
+    fun snapToEdgeMidpoint(point: WorldPoint): WorldPoint {
+        val horizontal = snapToHorizontalEdgeMidpoint(point)
+        val vertical = snapToVerticalEdgeMidpoint(point)
+        return if (horizontal.distanceTo(point) <= vertical.distanceTo(point)) {
+            horizontal
+        } else {
+            vertical
+        }
     }
+
+    /** Chooses the closest cell center, edge midpoint, or grid intersection. */
+    fun snapToNearestAnchor(point: WorldPoint): WorldPoint = listOf(
+        snapToCellCenter(point),
+        snapToEdgeMidpoint(point),
+        snapToIntersection(point),
+    ).minBy { anchor -> anchor.distanceTo(point) }
 
     fun chebyshevSteps(start: WorldPoint, end: WorldPoint): Int {
         val dx = round(abs(end.x - start.x) / cellSize).toInt()
@@ -156,12 +179,35 @@ data class HexGridGeometry(
             .minBy { vertex -> vertex.distanceTo(point) }
     }
 
-    /** Chooses whichever valid anchor—hex center or shared corner—is closest. */
-    fun snapToNearestAnchor(point: WorldPoint): WorldPoint {
-        val center = snapToCenter(point)
-        val vertex = snapToVertex(point)
-        return if (center.distanceTo(point) <= vertex.distanceTo(point)) center else vertex
+    /** Returns the six edge midpoints for the hex centered at [center]. */
+    fun edgeMidpoints(center: WorldPoint): List<WorldPoint> {
+        val vertices = corners(center)
+        return List(6) { index ->
+            val start = vertices[index]
+            val end = vertices[(index + 1) % vertices.size]
+            WorldPoint(
+                x = (start.x + end.x) / 2.0,
+                y = (start.y + end.y) / 2.0,
+            )
+        }
     }
+
+    /** Snaps to the nearest midpoint of a surrounding hex edge. */
+    fun snapToEdgeMidpoint(point: WorldPoint): WorldPoint {
+        val nearestCell = coordinateAt(point)
+        val candidateCells = listOf(nearestCell) + nearestCell.neighbors()
+        return candidateCells
+            .asSequence()
+            .flatMap { coordinate -> edgeMidpoints(centerOf(coordinate)).asSequence() }
+            .minBy { midpoint -> midpoint.distanceTo(point) }
+    }
+
+    /** Chooses the closest hex center, edge midpoint, or shared corner. */
+    fun snapToNearestAnchor(point: WorldPoint): WorldPoint = listOf(
+        snapToCenter(point),
+        snapToEdgeMidpoint(point),
+        snapToVertex(point),
+    ).minBy { anchor -> anchor.distanceTo(point) }
 
     fun distanceSteps(start: WorldPoint, end: WorldPoint): Int =
         coordinateAt(start).distanceTo(coordinateAt(end))
