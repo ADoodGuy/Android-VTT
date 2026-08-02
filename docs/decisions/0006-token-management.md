@@ -17,13 +17,16 @@ Grid scales retain the 1, 5, and 10 feet-per-cell presets and also accept a cust
 ## Prototype controls
 
 - **Add token** creates and selects a token at the current camera center without opening the settings card.
-- A single tap selects a token and displays four scale handles plus one rotation handle.
-- A double tap selects the token and opens its full settings card.
-- Long-press and drag moves the token.
+- A single tap selects an unselected token. A single tap on the selected token deselects it.
+- A double tap deselects the token.
+- A normal press-and-drag moves the token immediately; no long-press delay is required.
+- A stationary long press selects the token and opens its full settings card.
+- Selecting a token displays four scale handles plus one rotation handle.
 - The four scale handles sit at the token endpoints at 90-degree intervals. Dragging either handle on an axis changes that dimension symmetrically around the fixed token center.
 - Direct scale manipulation snaps to 0.5-cell increments and clamps to 0.5–100 cells.
 - The rotation handle remains 28 dp beyond the endpoint of the visible orientation indicator and rotates with that indicator.
 - Direct rotation manipulation snaps to 15-degree increments.
+- While a manipulation handle is being dragged, a screen-aligned label appears beneath the token. It displays the current width and height for scaling or the current angle for rotation, then disappears when the drag ends or is cancelled.
 - The settings card supports renaming, preset and custom size, preset and custom color, numeric rotation, oval marker-axis selection, resetting position, and deletion.
 - Grid style, snap state, preset scale, and custom scale are grouped under a bottom-right **Grid** menu to reduce top-toolbar scrolling.
 
