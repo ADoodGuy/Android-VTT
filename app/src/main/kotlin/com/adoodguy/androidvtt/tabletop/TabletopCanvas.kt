@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -58,20 +59,31 @@ private fun TokenView(
 ) {
     val density = LocalDensity.current
     val center = state.worldToScreen(token.position)
-    val diameterPx = (token.diameterWorldUnits * state.pixelsPerWorldUnit).toFloat()
-    val minimumDiameterPx = with(density) { 20.dp.toPx() }
-    val renderedDiameterPx = maxOf(diameterPx, minimumDiameterPx)
-    val renderedDiameterDp = with(density) { renderedDiameterPx.toDp() }
+    val widthPx = (
+        token.footprint.widthCells *
+            state.cellSizeWorldUnits *
+            state.pixelsPerWorldUnit
+        ).toFloat()
+    val heightPx = (
+        token.footprint.heightCells *
+            state.cellSizeWorldUnits *
+            state.pixelsPerWorldUnit
+        ).toFloat()
+    val minimumDimensionPx = with(density) { 20.dp.toPx() }
+    val renderedWidthPx = maxOf(widthPx, minimumDimensionPx)
+    val renderedHeightPx = maxOf(heightPx, minimumDimensionPx)
+    val renderedWidthDp = with(density) { renderedWidthPx.toDp() }
+    val renderedHeightDp = with(density) { renderedHeightPx.toDp() }
     val selected = state.isTokenSelected(token.id)
 
     Box(
         modifier = Modifier
             .zIndex(if (selected) 1f else 0f)
             .offsetInPixels(
-                x = center.x - renderedDiameterPx / 2f,
-                y = center.y - renderedDiameterPx / 2f,
+                x = center.x - renderedWidthPx / 2f,
+                y = center.y - renderedHeightPx / 2f,
             )
-            .size(renderedDiameterDp)
+            .size(renderedWidthDp, renderedHeightDp)
             .pointerInput(token.id) {
                 detectTapGestures(
                     onTap = { state.selectTokenAndOpenMenu(token.id) },
@@ -96,13 +108,20 @@ private fun TokenView(
             },
     ) {
         Canvas(Modifier.matchParentSize()) {
-            drawCircle(
-                color = token.color.composeColor,
-                radius = minOf(size.width, size.height) / 2f - 2f,
+            val inset = 2f
+            val ovalSize = Size(
+                width = (size.width - inset * 2f).coerceAtLeast(0f),
+                height = (size.height - inset * 2f).coerceAtLeast(0f),
             )
-            drawCircle(
+            drawOval(
+                color = token.color.composeColor,
+                topLeft = Offset(inset, inset),
+                size = ovalSize,
+            )
+            drawOval(
                 color = if (selected) Color(0xFFFFB300) else Color(0xFF20343F),
-                radius = minOf(size.width, size.height) / 2f - 2f,
+                topLeft = Offset(inset, inset),
+                size = ovalSize,
                 style = Stroke(width = if (selected) 6f else 3f),
             )
         }
@@ -111,9 +130,12 @@ private fun TokenView(
 
 private val TokenColor.composeColor: Color
     get() = when (this) {
-        TokenColor.BLUE -> Color(0xFF4E6E81)
         TokenColor.RED -> Color(0xFFB5534B)
+        TokenColor.ORANGE -> Color(0xFFD9772E)
+        TokenColor.YELLOW -> Color(0xFFE0B83E)
         TokenColor.GREEN -> Color(0xFF4F7A5A)
+        TokenColor.CYAN -> Color(0xFF2E8B92)
+        TokenColor.BLUE -> Color(0xFF4E6E81)
         TokenColor.PURPLE -> Color(0xFF735A8D)
     }
 
