@@ -16,12 +16,17 @@ Grid scales retain the 1, 5, and 10 feet-per-cell presets and also accept a cust
 
 ## Prototype controls
 
-- **Add token** creates a token at the current camera center and applies the active snap rule.
-- A tap selects one token and opens its settings panel.
-- Long-press and drag moves that token.
-- The settings panel supports renaming, preset and custom size, preset and custom color, rotation, oval marker-axis selection, resetting position, and deletion.
+- **Add token** creates and selects a token at the current camera center without opening the settings card.
+- A single tap selects a token and displays four scale handles plus one rotation handle.
+- A double tap selects the token and opens its full settings card.
+- Long-press and drag moves the token.
+- The four scale handles sit at the token endpoints at 90-degree intervals. Dragging either handle on an axis changes that dimension symmetrically around the fixed token center.
+- Direct scale manipulation snaps to 0.5-cell increments and clamps to 0.5–100 cells.
+- The rotation handle remains 28 dp beyond the endpoint of the visible orientation indicator and rotates with that indicator.
+- Direct rotation manipulation snaps to 15-degree increments.
+- The settings card supports renaming, preset and custom size, preset and custom color, numeric rotation, oval marker-axis selection, resetting position, and deletion.
 - Grid style, snap state, preset scale, and custom scale are grouped under a bottom-right **Grid** menu to reduce top-toolbar scrolling.
 
 ## Deferred work
 
-Image-backed tokens, arbitrary property schemas, persistence, z-order controls, rotation gestures, and undo/redo are intentionally deferred to later milestones.
+Image-backed tokens, arbitrary property schemas, persistence, z-order controls, configurable manipulation snap increments, rotation/scale undo, and general undo/redo are intentionally deferred to later milestones.
