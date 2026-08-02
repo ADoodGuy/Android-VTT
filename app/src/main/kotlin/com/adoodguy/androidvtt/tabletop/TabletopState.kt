@@ -17,6 +17,7 @@ import com.adoodguy.androidvtt.geometry.UnitScale
 import com.adoodguy.androidvtt.geometry.ViewportSize
 import com.adoodguy.androidvtt.geometry.ViewportTransform
 import com.adoodguy.androidvtt.geometry.WorldPoint
+import kotlin.math.abs
 
 class TabletopState {
     var tool by mutableStateOf(TabletopTool.PAN)
@@ -30,7 +31,6 @@ class TabletopState {
         private set
 
     val cellSizeWorldUnits: Double = 1.0
-    val tokenDiameterWorldUnits: Double = cellSizeWorldUnits
     val brushWidthWorldUnits: Double = 0.065
 
     private val unitScalePresets = listOf(1.0, 5.0, 10.0)
@@ -39,12 +39,26 @@ class TabletopState {
     val unitScale: UnitScale
         get() = UnitScale(displayedUnitsPerCell / cellSizeWorldUnits, "ft")
 
-    var tokenPosition by mutableStateOf(WorldPoint(0.0, 0.0))
-        private set
-    var tokenSelected by mutableStateOf(false)
+    private val tokenSizePresetsInCells = listOf(0.5, 1.0, 2.0)
+    private var nextTokenId = 2L
+
+    val tokens = mutableStateListOf(
+        TabletopToken(
+            id = 1L,
+            name = "Token 1",
+            position = WorldPoint.Zero,
+            diameterWorldUnits = cellSizeWorldUnits,
+            color = TokenColor.BLUE,
+        ),
+    )
+
+    var selectedTokenId by mutableStateOf<Long?>(null)
         private set
     var tokenMenuVisible by mutableStateOf(false)
         private set
+
+    val selectedToken: TabletopToken?
+        get() = selectedTokenId?.let(::tokenById)
 
     var measurement by mutableStateOf<MeasurementLine?>(null)
         private set
@@ -108,39 +122,96 @@ class TabletopState {
         unitScaleIndex = (unitScaleIndex + 1) % unitScalePresets.size
     }
 
-    fun selectTokenAndOpenMenu() {
-        tokenSelected = true
+    fun addToken() {
+        val id = nextTokenId++
+        val token = TabletopToken(
+            id = id,
+            name = "Token $id",
+            position = snapWorldPoint(cameraCenter),
+            diameterWorldUnits = cellSizeWorldUnits,
+            color = TokenColor.entries[((id - 1) % TokenColor.entries.size).toInt()],
+        )
+        tokens.add(token)
+        selectedTokenId = id
         tokenMenuVisible = true
     }
 
-    fun beginTokenMove() {
-        tokenSelected = true
+    fun selectTokenAndOpenMenu(tokenId: Long) {
+        if (tokenById(tokenId) == null) return
+        selectedTokenId = tokenId
+        tokenMenuVisible = true
+    }
+
+    fun beginTokenMove(tokenId: Long) {
+        if (tokenById(tokenId) == null) return
+        selectedTokenId = tokenId
         tokenMenuVisible = false
     }
 
-    fun moveTokenByScreenDelta(delta: Offset) {
-        tokenPosition = WorldPoint(
-            x = tokenPosition.x + delta.x / pixelsPerWorldUnit,
-            y = tokenPosition.y + delta.y / pixelsPerWorldUnit,
-        )
+    fun moveTokenByScreenDelta(tokenId: Long, delta: Offset) {
+        updateToken(tokenId) { token ->
+            token.copy(
+                position = WorldPoint(
+                    x = token.position.x + delta.x / pixelsPerWorldUnit,
+                    y = token.position.y + delta.y / pixelsPerWorldUnit,
+                ),
+            )
+        }
     }
 
-    fun finishTokenMove() {
-        tokenPosition = snapWorldPoint(tokenPosition)
+    fun finishTokenMove(tokenId: Long) {
+        updateToken(tokenId) { token ->
+            token.copy(position = snapWorldPoint(token.position))
+        }
+    }
+
+    fun isTokenSelected(tokenId: Long): Boolean = selectedTokenId == tokenId
+
+    fun renameSelectedToken(name: String) {
+        val tokenId = selectedTokenId ?: return
+        updateToken(tokenId) { it.copy(name = name.take(40)) }
+    }
+
+    fun cycleSelectedTokenSize() {
+        val tokenId = selectedTokenId ?: return
+        updateToken(tokenId) { token ->
+            val sizeInCells = token.diameterWorldUnits / cellSizeWorldUnits
+            val currentIndex = tokenSizePresetsInCells.indexOfFirst {
+                abs(it - sizeInCells) < 0.000_001
+            }.takeIf { it >= 0 } ?: 1
+            val nextSize = tokenSizePresetsInCells[(currentIndex + 1) % tokenSizePresetsInCells.size]
+            token.copy(diameterWorldUnits = nextSize * cellSizeWorldUnits)
+        }
+    }
+
+    fun cycleSelectedTokenColor() {
+        val tokenId = selectedTokenId ?: return
+        updateToken(tokenId) { token ->
+            val nextIndex = (token.color.ordinal + 1) % TokenColor.entries.size
+            token.copy(color = TokenColor.entries[nextIndex])
+        }
+    }
+
+    fun resetSelectedToken() {
+        val tokenId = selectedTokenId ?: return
+        updateToken(tokenId) { token ->
+            token.copy(position = snapWorldPoint(WorldPoint.Zero))
+        }
+        tokenMenuVisible = false
+    }
+
+    fun deleteSelectedToken() {
+        val tokenId = selectedTokenId ?: return
+        tokens.removeAll { it.id == tokenId }
+        clearTokenSelection()
     }
 
     fun clearTokenSelection() {
-        tokenSelected = false
+        selectedTokenId = null
         tokenMenuVisible = false
     }
 
     fun dismissTokenMenu() {
-        tokenMenuVisible = false
-    }
-
-    fun resetToken() {
-        tokenPosition = snapWorldPoint(WorldPoint.Zero)
-        tokenSelected = true
         tokenMenuVisible = false
     }
 
@@ -182,5 +253,17 @@ class TabletopState {
     fun clearDrawings() {
         strokes.clear()
         activeStroke = null
+    }
+
+    private fun tokenById(tokenId: Long): TabletopToken? =
+        tokens.firstOrNull { it.id == tokenId }
+
+    private fun updateToken(
+        tokenId: Long,
+        transform: (TabletopToken) -> TabletopToken,
+    ) {
+        val index = tokens.indexOfFirst { it.id == tokenId }
+        if (index < 0) return
+        tokens[index] = transform(tokens[index])
     }
 }
