@@ -125,7 +125,7 @@ class TabletopState {
         hexOrientation = orientation
     }
 
-    fun setDisplayedUnitsPerCell(units: Double) {
+    fun selectUnitScale(units: Double) {
         if (units in unitScalePresets) {
             displayedUnitsPerCell = units
         }
