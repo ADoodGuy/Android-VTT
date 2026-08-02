@@ -10,12 +10,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -88,6 +90,10 @@ private fun PrototypeToolbar(state: TabletopState) {
                 )
             }
 
+            Button(onClick = state::addToken) {
+                Text("Add token")
+            }
+
             FilterChip(
                 selected = state.gridKind == GridKind.SQUARE,
                 onClick = { state.gridKind = GridKind.SQUARE },
@@ -129,14 +135,13 @@ private fun PrototypeToolbar(state: TabletopState) {
                 onClick = state::cycleUnitScale,
                 label = { Text("${state.displayedUnitsPerCell.roundToInt()} ft / cell") },
             )
-
         }
 
         val hasMeasurement = state.measurement != null
         val hasDrawings = state.strokes.isNotEmpty() || state.activeStroke != null
 
-        // Keep this row in the layout at all times. Only its contents change,
-        // so Scaffold's top padding and the tabletop viewport remain stable.
+        // This row always occupies the same height so the tabletop viewport does
+        // not move when clear actions appear or disappear.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -189,19 +194,60 @@ private fun DebugBar(state: TabletopState) {
     }
 }
 
-
 @Composable
 private fun BoxScope.TokenContextMenu(state: TabletopState) {
     if (!state.tokenMenuVisible) return
+    val token = state.selectedToken ?: return
+    val sizeInCells = token.diameterWorldUnits / state.cellSizeWorldUnits
+
     Card(
         modifier = Modifier
             .align(Alignment.TopEnd)
-            .padding(12.dp),
+            .padding(12.dp)
+            .widthIn(min = 220.dp, max = 300.dp),
     ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Text("Prototype token", style = MaterialTheme.typography.titleSmall)
-            Button(onClick = state::resetToken) { Text("Reset to origin") }
-            Button(onClick = state::dismissTokenMenu) { Text("Close") }
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Token settings", style = MaterialTheme.typography.titleSmall)
+
+            OutlinedTextField(
+                value = token.name,
+                onValueChange = state::renameSelectedToken,
+                label = { Text("Name") },
+                singleLine = true,
+            )
+
+            AssistChip(
+                onClick = state::cycleSelectedTokenSize,
+                label = { Text("Size ${formatCellCount(sizeInCells)}") },
+            )
+            AssistChip(
+                onClick = state::cycleSelectedTokenColor,
+                label = {
+                    Text(
+                        "Color ${token.color.name.lowercase().replaceFirstChar { it.uppercase() }}",
+                    )
+                },
+            )
+
+            Button(onClick = state::resetSelectedToken) {
+                Text("Reset to origin")
+            }
+            Button(onClick = state::deleteSelectedToken) {
+                Text("Delete token")
+            }
+            Button(onClick = state::dismissTokenMenu) {
+                Text("Close")
+            }
         }
     }
 }
+
+private fun formatCellCount(value: Double): String =
+    if (value % 1.0 == 0.0) {
+        "${value.roundToInt()} cell${if (value == 1.0) "" else "s"}"
+    } else {
+        "$value cells"
+    }
