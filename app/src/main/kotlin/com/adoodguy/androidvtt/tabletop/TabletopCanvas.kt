@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
@@ -22,6 +23,9 @@ import androidx.compose.ui.zIndex
 import com.adoodguy.androidvtt.geometry.GridKind
 import com.adoodguy.androidvtt.geometry.MeasurementEngine
 import com.adoodguy.androidvtt.geometry.WorldPoint
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.roundToInt
 
 @Composable
@@ -60,30 +64,44 @@ private fun TokenView(
     val density = LocalDensity.current
     val center = state.worldToScreen(token.position)
     val widthPx = (
-        token.footprint.widthCells *
+        token.widthCells *
             state.cellSizeWorldUnits *
             state.pixelsPerWorldUnit
         ).toFloat()
     val heightPx = (
-        token.footprint.heightCells *
+        token.heightCells *
             state.cellSizeWorldUnits *
             state.pixelsPerWorldUnit
         ).toFloat()
-    val minimumDimensionPx = with(density) { 20.dp.toPx() }
-    val renderedWidthPx = maxOf(widthPx, minimumDimensionPx)
-    val renderedHeightPx = maxOf(heightPx, minimumDimensionPx)
-    val renderedWidthDp = with(density) { renderedWidthPx.toDp() }
-    val renderedHeightDp = with(density) { renderedHeightPx.toDp() }
+
+    val minimumVisualDimensionPx = with(density) { 20.dp.toPx() }
+    val minimumTouchDimensionPx = with(density) { 48.dp.toPx() }
+    val renderedWidthPx = maxOf(widthPx, minimumVisualDimensionPx)
+    val renderedHeightPx = maxOf(heightPx, minimumVisualDimensionPx)
+
+    // Use the rotated ellipse's bounding box so the full visual remains
+    // touchable without reserving an unnecessarily large square target.
+    val radians = Math.toRadians(token.rotationDegrees)
+    val absoluteCosine = abs(cos(radians)).toFloat()
+    val absoluteSine = abs(sin(radians)).toFloat()
+    val rotatedWidthPx =
+        renderedWidthPx * absoluteCosine + renderedHeightPx * absoluteSine
+    val rotatedHeightPx =
+        renderedWidthPx * absoluteSine + renderedHeightPx * absoluteCosine
+    val containerWidthPx = maxOf(rotatedWidthPx, minimumTouchDimensionPx)
+    val containerHeightPx = maxOf(rotatedHeightPx, minimumTouchDimensionPx)
+    val containerWidthDp = with(density) { containerWidthPx.toDp() }
+    val containerHeightDp = with(density) { containerHeightPx.toDp() }
     val selected = state.isTokenSelected(token.id)
 
     Box(
         modifier = Modifier
             .zIndex(if (selected) 1f else 0f)
             .offsetInPixels(
-                x = center.x - renderedWidthPx / 2f,
-                y = center.y - renderedHeightPx / 2f,
+                x = center.x - containerWidthPx / 2f,
+                y = center.y - containerHeightPx / 2f,
             )
-            .size(renderedWidthDp, renderedHeightDp)
+            .size(containerWidthDp, containerHeightDp)
             .pointerInput(token.id) {
                 detectTapGestures(
                     onTap = { state.selectTokenAndOpenMenu(token.id) },
@@ -108,36 +126,97 @@ private fun TokenView(
             },
     ) {
         Canvas(Modifier.matchParentSize()) {
-            val inset = 2f
-            val ovalSize = Size(
-                width = (size.width - inset * 2f).coerceAtLeast(0f),
-                height = (size.height - inset * 2f).coerceAtLeast(0f),
-            )
-            drawOval(
-                color = token.color.composeColor,
-                topLeft = Offset(inset, inset),
-                size = ovalSize,
-            )
-            drawOval(
-                color = if (selected) Color(0xFFFFB300) else Color(0xFF20343F),
-                topLeft = Offset(inset, inset),
-                size = ovalSize,
-                style = Stroke(width = if (selected) 6f else 3f),
+            drawToken(
+                token = token,
+                renderedWidthPx = renderedWidthPx,
+                renderedHeightPx = renderedHeightPx,
+                selected = selected,
             )
         }
     }
 }
 
-private val TokenColor.composeColor: Color
-    get() = when (this) {
-        TokenColor.RED -> Color(0xFFB5534B)
-        TokenColor.ORANGE -> Color(0xFFD9772E)
-        TokenColor.YELLOW -> Color(0xFFE0B83E)
-        TokenColor.GREEN -> Color(0xFF4F7A5A)
-        TokenColor.CYAN -> Color(0xFF2E8B92)
-        TokenColor.BLUE -> Color(0xFF4E6E81)
-        TokenColor.PURPLE -> Color(0xFF735A8D)
+private fun DrawScope.drawToken(
+    token: TabletopToken,
+    renderedWidthPx: Float,
+    renderedHeightPx: Float,
+    selected: Boolean,
+) {
+    val tokenCenter = center
+    val inset = 2f
+    val ovalSize = Size(
+        width = (renderedWidthPx - inset * 2f).coerceAtLeast(0f),
+        height = (renderedHeightPx - inset * 2f).coerceAtLeast(0f),
+    )
+    val ovalTopLeft = Offset(
+        x = tokenCenter.x - ovalSize.width / 2f,
+        y = tokenCenter.y - ovalSize.height / 2f,
+    )
+    val outlineColor = if (selected) Color(0xFFFFB300) else Color(0xFF20343F)
+    val outlineWidth = if (selected) 6f else 3f
+
+    rotate(
+        degrees = token.rotationDegrees.toFloat(),
+        pivot = tokenCenter,
+    ) {
+        drawOval(
+            color = Color(token.colorArgb),
+            topLeft = ovalTopLeft,
+            size = ovalSize,
+        )
+
+        val markerEnd = orientationMarkerEnd(
+            center = tokenCenter,
+            width = ovalSize.width,
+            height = ovalSize.height,
+            axis = token.orientationMarkerAxis,
+        )
+        drawLine(
+            color = Color(0xAA000000),
+            start = tokenCenter,
+            end = markerEnd,
+            strokeWidth = 5f * density,
+        )
+        drawLine(
+            color = Color(0xEEFFFFFF),
+            start = tokenCenter,
+            end = markerEnd,
+            strokeWidth = 2f * density,
+        )
+
+        drawOval(
+            color = outlineColor,
+            topLeft = ovalTopLeft,
+            size = ovalSize,
+            style = Stroke(width = outlineWidth),
+        )
     }
+}
+
+private fun DrawScope.orientationMarkerEnd(
+    center: Offset,
+    width: Float,
+    height: Float,
+    axis: TokenOrientationMarkerAxis,
+): Offset {
+    val markerInset = 5f * density
+    val horizontalDistance = (width / 2f - markerInset).coerceAtLeast(0f)
+    val verticalDistance = (height / 2f - markerInset).coerceAtLeast(0f)
+    val circular = abs(width - height) < 0.5f
+    val widthIsMajor = width >= height
+
+    return when {
+        circular -> Offset(center.x, center.y - verticalDistance)
+        axis == TokenOrientationMarkerAxis.MAJOR && widthIsMajor ->
+            Offset(center.x + horizontalDistance, center.y)
+        axis == TokenOrientationMarkerAxis.MAJOR ->
+            Offset(center.x, center.y - verticalDistance)
+        axis == TokenOrientationMarkerAxis.MINOR && widthIsMajor ->
+            Offset(center.x, center.y - verticalDistance)
+        else ->
+            Offset(center.x + horizontalDistance, center.y)
+    }
+}
 
 private fun Modifier.offsetInPixels(x: Float, y: Float): Modifier =
     this.then(
