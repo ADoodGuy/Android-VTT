@@ -247,7 +247,7 @@ private fun GridSettingsMenu(state: TabletopState) {
                         )
                     },
                     onClick = {
-                        state.setDisplayedUnitsPerCell(units)
+                        state.selectUnitScale(units)
                         expanded = false
                     },
                 )
