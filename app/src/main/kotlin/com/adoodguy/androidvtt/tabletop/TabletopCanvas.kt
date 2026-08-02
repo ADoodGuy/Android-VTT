@@ -17,6 +17,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.adoodguy.androidvtt.geometry.GridKind
 import com.adoodguy.androidvtt.geometry.MeasurementEngine
 import com.adoodguy.androidvtt.geometry.WorldPoint
@@ -41,65 +42,80 @@ fun TabletopCanvas(
             drawOrigin(state)
         }
 
-        PrototypeToken(state)
+        state.tokens.forEach { token ->
+            TokenView(
+                state = state,
+                token = token,
+            )
+        }
     }
 }
 
 @Composable
-private fun PrototypeToken(state: TabletopState) {
+private fun TokenView(
+    state: TabletopState,
+    token: TabletopToken,
+) {
     val density = LocalDensity.current
-    val center = state.worldToScreen(state.tokenPosition)
-    val diameterPx = (state.tokenDiameterWorldUnits * state.pixelsPerWorldUnit).toFloat()
-    val diameterDp = with(density) { diameterPx.toDp() }
-
+    val center = state.worldToScreen(token.position)
+    val diameterPx = (token.diameterWorldUnits * state.pixelsPerWorldUnit).toFloat()
     val minimumDiameterPx = with(density) { 20.dp.toPx() }
     val renderedDiameterPx = maxOf(diameterPx, minimumDiameterPx)
+    val renderedDiameterDp = with(density) { renderedDiameterPx.toDp() }
+    val selected = state.isTokenSelected(token.id)
 
     Box(
         modifier = Modifier
-            // Position the entire interactive token before attaching pointer input.
-            // Modifier order matters: placing offset after pointerInput moves only the
-            // drawing while leaving the touch target at the original top-left position.
+            .zIndex(if (selected) 1f else 0f)
             .offsetInPixels(
                 x = center.x - renderedDiameterPx / 2f,
                 y = center.y - renderedDiameterPx / 2f,
             )
-            .size(diameterDp.coerceAtLeast(20.dp))
-            .pointerInput(Unit) {
+            .size(renderedDiameterDp)
+            .pointerInput(token.id) {
                 detectTapGestures(
-                    onTap = { state.selectTokenAndOpenMenu() },
+                    onTap = { state.selectTokenAndOpenMenu(token.id) },
                 )
             }
             .pointerInput(
+                token.id,
                 state.pixelsPerWorldUnit,
                 state.gridKind,
                 state.hexOrientation,
                 state.snapEnabled,
             ) {
                 detectDragGesturesAfterLongPress(
-                    onDragStart = { state.beginTokenMove() },
-                    onDragEnd = { state.finishTokenMove() },
-                    onDragCancel = { state.finishTokenMove() },
+                    onDragStart = { state.beginTokenMove(token.id) },
+                    onDragEnd = { state.finishTokenMove(token.id) },
+                    onDragCancel = { state.finishTokenMove(token.id) },
                     onDrag = { change, dragAmount ->
                         change.consume()
-                        state.moveTokenByScreenDelta(dragAmount)
+                        state.moveTokenByScreenDelta(token.id, dragAmount)
                     },
                 )
             },
     ) {
         Canvas(Modifier.matchParentSize()) {
             drawCircle(
-                color = Color(0xFF4E6E81),
+                color = token.color.composeColor,
                 radius = minOf(size.width, size.height) / 2f - 2f,
             )
             drawCircle(
-                color = if (state.tokenSelected) Color(0xFFFFB300) else Color(0xFF20343F),
+                color = if (selected) Color(0xFFFFB300) else Color(0xFF20343F),
                 radius = minOf(size.width, size.height) / 2f - 2f,
-                style = Stroke(width = if (state.tokenSelected) 6f else 3f),
+                style = Stroke(width = if (selected) 6f else 3f),
             )
         }
     }
 }
+
+private val TokenColor.composeColor: Color
+    get() = when (this) {
+        TokenColor.BLUE -> Color(0xFF4E6E81)
+        TokenColor.RED -> Color(0xFFB5534B)
+        TokenColor.GREEN -> Color(0xFF4F7A5A)
+        TokenColor.PURPLE -> Color(0xFF735A8D)
+    }
 
 private fun Modifier.offsetInPixels(x: Float, y: Float): Modifier =
     this.then(
