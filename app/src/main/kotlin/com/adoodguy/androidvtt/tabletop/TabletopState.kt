@@ -73,12 +73,14 @@ class TabletopState {
     fun screenToWorld(point: Offset): WorldPoint =
         transform.screenToWorld(ScreenPoint(point.x.toDouble(), point.y.toDouble()))
 
-    fun snappedWorldPoint(screenPoint: Offset): WorldPoint {
-        val world = screenToWorld(screenPoint)
+    fun snappedWorldPoint(screenPoint: Offset): WorldPoint =
+        snapWorldPoint(screenToWorld(screenPoint))
+
+    private fun snapWorldPoint(world: WorldPoint): WorldPoint {
         if (!snapEnabled) return world
         return when (gridKind) {
-            GridKind.SQUARE -> squareGrid.snapToCellCenter(world)
-            GridKind.HEX -> hexGrid.snapToCenter(world)
+            GridKind.SQUARE -> squareGrid.snapToNearestAnchor(world)
+            GridKind.HEX -> hexGrid.snapToNearestAnchor(world)
         }
     }
 
@@ -124,12 +126,7 @@ class TabletopState {
     }
 
     fun finishTokenMove() {
-        if (snapEnabled) {
-            tokenPosition = when (gridKind) {
-                GridKind.SQUARE -> squareGrid.snapToCellCenter(tokenPosition)
-                GridKind.HEX -> hexGrid.snapToCenter(tokenPosition)
-            }
-        }
+        tokenPosition = snapWorldPoint(tokenPosition)
     }
 
     fun clearTokenSelection() {
@@ -142,10 +139,7 @@ class TabletopState {
     }
 
     fun resetToken() {
-        tokenPosition = when (gridKind) {
-            GridKind.SQUARE -> squareGrid.snapToCellCenter(WorldPoint.Zero)
-            GridKind.HEX -> hexGrid.snapToCenter(WorldPoint.Zero)
-        }
+        tokenPosition = snapWorldPoint(WorldPoint.Zero)
         tokenSelected = true
         tokenMenuVisible = false
     }

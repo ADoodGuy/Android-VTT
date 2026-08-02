@@ -31,6 +31,21 @@ data class AxialCoordinate(val q: Int, val r: Int) {
             abs(cubeY - other.cubeY) +
             abs(cubeZ - other.cubeZ)
         ) / 2
+
+    fun neighbors(): List<AxialCoordinate> = NEIGHBOR_DIRECTIONS.map { direction ->
+        AxialCoordinate(q + direction.q, r + direction.r)
+    }
+
+    private companion object {
+        val NEIGHBOR_DIRECTIONS = listOf(
+            AxialCoordinate(1, 0),
+            AxialCoordinate(1, -1),
+            AxialCoordinate(0, -1),
+            AxialCoordinate(-1, 0),
+            AxialCoordinate(-1, 1),
+            AxialCoordinate(0, 1),
+        )
+    }
 }
 
 data class SquareGridGeometry(
@@ -52,6 +67,13 @@ data class SquareGridGeometry(
         x = origin.x + (round((point.x - origin.x) / cellSize - 0.5) + 0.5) * cellSize,
         y = origin.y + (round((point.y - origin.y) / cellSize - 0.5) + 0.5) * cellSize,
     )
+
+    /** Chooses whichever valid anchor—cell center or intersection—is closest. */
+    fun snapToNearestAnchor(point: WorldPoint): WorldPoint {
+        val center = snapToCellCenter(point)
+        val vertex = snapToIntersection(point)
+        return if (center.distanceTo(point) <= vertex.distanceTo(point)) center else vertex
+    }
 
     fun chebyshevSteps(start: WorldPoint, end: WorldPoint): Int {
         val dx = round(abs(end.x - start.x) / cellSize).toInt()
@@ -123,6 +145,23 @@ data class HexGridGeometry(
     }
 
     fun snapToCenter(point: WorldPoint): WorldPoint = centerOf(coordinateAt(point))
+
+    /** Snaps to the nearest corner shared by the surrounding hex cells. */
+    fun snapToVertex(point: WorldPoint): WorldPoint {
+        val nearestCell = coordinateAt(point)
+        val candidateCells = listOf(nearestCell) + nearestCell.neighbors()
+        return candidateCells
+            .asSequence()
+            .flatMap { coordinate -> corners(centerOf(coordinate)).asSequence() }
+            .minBy { vertex -> vertex.distanceTo(point) }
+    }
+
+    /** Chooses whichever valid anchor—hex center or shared corner—is closest. */
+    fun snapToNearestAnchor(point: WorldPoint): WorldPoint {
+        val center = snapToCenter(point)
+        val vertex = snapToVertex(point)
+        return if (center.distanceTo(point) <= vertex.distanceTo(point)) center else vertex
+    }
 
     fun distanceSteps(start: WorldPoint, end: WorldPoint): Int =
         coordinateAt(start).distanceTo(coordinateAt(end))

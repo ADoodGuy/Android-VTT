@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AssistChip
@@ -129,11 +130,33 @@ private fun PrototypeToolbar(state: TabletopState) {
                 label = { Text("${state.displayedUnitsPerCell.roundToInt()} ft / cell") },
             )
 
-            if (state.measurement != null) {
-                Button(onClick = state::clearMeasurement) { Text("Clear measure") }
+        }
+
+        val hasMeasurement = state.measurement != null
+        val hasDrawings = state.strokes.isNotEmpty() || state.activeStroke != null
+
+        // Keep this row in the layout at all times. Only its contents change,
+        // so Scaffold's top padding and the tabletop viewport remain stable.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+                .padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(
+                space = 8.dp,
+                alignment = Alignment.End,
+            ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (hasMeasurement) {
+                Button(onClick = state::clearMeasurement) {
+                    Text("Clear measurement")
+                }
             }
-            if (state.strokes.isNotEmpty() || state.activeStroke != null) {
-                Button(onClick = state::clearDrawings) { Text("Clear drawings") }
+            if (hasDrawings) {
+                Button(onClick = state::clearDrawings) {
+                    Text("Clear drawings")
+                }
             }
         }
     }
