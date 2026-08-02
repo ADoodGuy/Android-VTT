@@ -33,6 +33,52 @@ class HexGridGeometryTest {
     }
 
     @Test
+    fun pointyTopVertexSnappingFindsNearestCorner() {
+        val grid = HexGridGeometry(10.0, HexOrientation.POINTY_TOP)
+        val expected = grid.corners(WorldPoint.Zero)[2]
+        val nearbyPoint = WorldPoint(expected.x + 0.2, expected.y - 0.1)
+
+        val snapped = grid.snapToVertex(nearbyPoint)
+
+        assertEquals(expected.x, snapped.x, absoluteTolerance = 1e-9)
+        assertEquals(expected.y, snapped.y, absoluteTolerance = 1e-9)
+    }
+
+    @Test
+    fun flatTopVertexSnappingFindsNearestCorner() {
+        val grid = HexGridGeometry(10.0, HexOrientation.FLAT_TOP)
+        val expected = grid.corners(WorldPoint.Zero)[4]
+        val nearbyPoint = WorldPoint(expected.x - 0.15, expected.y + 0.1)
+
+        val snapped = grid.snapToVertex(nearbyPoint)
+
+        assertEquals(expected.x, snapped.x, absoluteTolerance = 1e-9)
+        assertEquals(expected.y, snapped.y, absoluteTolerance = 1e-9)
+    }
+
+    @Test
+    fun nearestAnchorChoosesHexCenterWhenItIsCloser() {
+        val grid = HexGridGeometry(10.0, HexOrientation.POINTY_TOP)
+
+        val snapped = grid.snapToNearestAnchor(WorldPoint(0.2, -0.1))
+
+        assertEquals(WorldPoint.Zero, snapped)
+    }
+
+    @Test
+    fun nearestAnchorChoosesHexVertexWhenItIsCloser() {
+        val grid = HexGridGeometry(10.0, HexOrientation.FLAT_TOP)
+        val expected = grid.corners(WorldPoint.Zero).first()
+
+        val snapped = grid.snapToNearestAnchor(
+            WorldPoint(expected.x - 0.1, expected.y + 0.05),
+        )
+
+        assertEquals(expected.x, snapped.x, absoluteTolerance = 1e-9)
+        assertEquals(expected.y, snapped.y, absoluteTolerance = 1e-9)
+    }
+
+    @Test
     fun cubeDistanceCountsHexSteps() {
         val start = AxialCoordinate(0, 0)
         val end = AxialCoordinate(4, -1)

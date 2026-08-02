@@ -52,32 +52,40 @@ private fun PrototypeToken(state: TabletopState) {
     val diameterPx = (state.tokenDiameterWorldUnits * state.pixelsPerWorldUnit).toFloat()
     val diameterDp = with(density) { diameterPx.toDp() }
 
+    val minimumDiameterPx = with(density) { 20.dp.toPx() }
+    val renderedDiameterPx = maxOf(diameterPx, minimumDiameterPx)
+
     Box(
         modifier = Modifier
-            .then(
-                Modifier
-                    .size(diameterDp.coerceAtLeast(20.dp))
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = { state.selectTokenAndOpenMenu() },
-                        )
-                    }
-                    .pointerInput(state.pixelsPerWorldUnit, state.gridKind, state.snapEnabled) {
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = { state.beginTokenMove() },
-                            onDragEnd = { state.finishTokenMove() },
-                            onDragCancel = { state.finishTokenMove() },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                state.moveTokenByScreenDelta(dragAmount)
-                            },
-                        )
-                    },
-            )
+            // Position the entire interactive token before attaching pointer input.
+            // Modifier order matters: placing offset after pointerInput moves only the
+            // drawing while leaving the touch target at the original top-left position.
             .offsetInPixels(
-                x = center.x - maxOf(diameterPx, with(density) { 20.dp.toPx() }) / 2f,
-                y = center.y - maxOf(diameterPx, with(density) { 20.dp.toPx() }) / 2f,
-            ),
+                x = center.x - renderedDiameterPx / 2f,
+                y = center.y - renderedDiameterPx / 2f,
+            )
+            .size(diameterDp.coerceAtLeast(20.dp))
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { state.selectTokenAndOpenMenu() },
+                )
+            }
+            .pointerInput(
+                state.pixelsPerWorldUnit,
+                state.gridKind,
+                state.hexOrientation,
+                state.snapEnabled,
+            ) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { state.beginTokenMove() },
+                    onDragEnd = { state.finishTokenMove() },
+                    onDragCancel = { state.finishTokenMove() },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        state.moveTokenByScreenDelta(dragAmount)
+                    },
+                )
+            },
     ) {
         Canvas(Modifier.matchParentSize()) {
             drawCircle(
