@@ -125,10 +125,6 @@ class TabletopState {
         hexOrientation = orientation
     }
 
-    fun setSnapEnabled(enabled: Boolean) {
-        snapEnabled = enabled
-    }
-
     fun setDisplayedUnitsPerCell(units: Double) {
         if (units in unitScalePresets) {
             displayedUnitsPerCell = units
