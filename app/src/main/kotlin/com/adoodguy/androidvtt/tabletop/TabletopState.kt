@@ -17,7 +17,6 @@ import com.adoodguy.androidvtt.geometry.UnitScale
 import com.adoodguy.androidvtt.geometry.ViewportSize
 import com.adoodguy.androidvtt.geometry.ViewportTransform
 import com.adoodguy.androidvtt.geometry.WorldPoint
-import kotlin.math.abs
 
 class TabletopState {
     var tool by mutableStateOf(TabletopTool.PAN)
@@ -33,13 +32,12 @@ class TabletopState {
     val cellSizeWorldUnits: Double = 1.0
     val brushWidthWorldUnits: Double = 0.065
 
-    private val unitScalePresets = listOf(1.0, 5.0, 10.0)
-    private var unitScaleIndex by mutableStateOf(1)
-    val displayedUnitsPerCell: Double get() = unitScalePresets[unitScaleIndex]
+    val unitScalePresets = listOf(1.0, 5.0, 10.0)
+    var displayedUnitsPerCell by mutableDoubleStateOf(5.0)
+        private set
     val unitScale: UnitScale
         get() = UnitScale(displayedUnitsPerCell / cellSizeWorldUnits, "ft")
 
-    private val tokenSizePresetsInCells = listOf(0.5, 1.0, 2.0)
     private var nextTokenId = 2L
 
     val tokens = mutableStateListOf(
@@ -47,7 +45,7 @@ class TabletopState {
             id = 1L,
             name = "Token 1",
             position = WorldPoint.Zero,
-            diameterWorldUnits = cellSizeWorldUnits,
+            footprint = TokenFootprint.ONE_BY_ONE,
             color = TokenColor.BLUE,
         ),
     )
@@ -118,8 +116,23 @@ class TabletopState {
         dismissTokenMenu()
     }
 
-    fun cycleUnitScale() {
-        unitScaleIndex = (unitScaleIndex + 1) % unitScalePresets.size
+    fun selectSquareGrid() {
+        gridKind = GridKind.SQUARE
+    }
+
+    fun selectHexGrid(orientation: HexOrientation) {
+        gridKind = GridKind.HEX
+        hexOrientation = orientation
+    }
+
+    fun setSnapEnabled(enabled: Boolean) {
+        snapEnabled = enabled
+    }
+
+    fun setDisplayedUnitsPerCell(units: Double) {
+        if (units in unitScalePresets) {
+            displayedUnitsPerCell = units
+        }
     }
 
     fun addToken() {
@@ -128,7 +141,7 @@ class TabletopState {
             id = id,
             name = "Token $id",
             position = snapWorldPoint(cameraCenter),
-            diameterWorldUnits = cellSizeWorldUnits,
+            footprint = TokenFootprint.ONE_BY_ONE,
             color = TokenColor.entries[((id - 1) % TokenColor.entries.size).toInt()],
         )
         tokens.add(token)
@@ -172,24 +185,14 @@ class TabletopState {
         updateToken(tokenId) { it.copy(name = name.take(40)) }
     }
 
-    fun cycleSelectedTokenSize() {
+    fun setSelectedTokenFootprint(footprint: TokenFootprint) {
         val tokenId = selectedTokenId ?: return
-        updateToken(tokenId) { token ->
-            val sizeInCells = token.diameterWorldUnits / cellSizeWorldUnits
-            val currentIndex = tokenSizePresetsInCells.indexOfFirst {
-                abs(it - sizeInCells) < 0.000_001
-            }.takeIf { it >= 0 } ?: 1
-            val nextSize = tokenSizePresetsInCells[(currentIndex + 1) % tokenSizePresetsInCells.size]
-            token.copy(diameterWorldUnits = nextSize * cellSizeWorldUnits)
-        }
+        updateToken(tokenId) { it.copy(footprint = footprint) }
     }
 
-    fun cycleSelectedTokenColor() {
+    fun setSelectedTokenColor(color: TokenColor) {
         val tokenId = selectedTokenId ?: return
-        updateToken(tokenId) { token ->
-            val nextIndex = (token.color.ordinal + 1) % TokenColor.entries.size
-            token.copy(color = TokenColor.entries[nextIndex])
-        }
+        updateToken(tokenId) { it.copy(color = color) }
     }
 
     fun resetSelectedToken() {
