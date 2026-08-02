@@ -224,7 +224,7 @@ private fun GridSettingsMenu(state: TabletopState) {
             DropdownMenuItem(
                 text = { Text(menuChoice(state.snapEnabled, "Snap to grid")) },
                 onClick = {
-                    state.setSnapEnabled(!state.snapEnabled)
+                    state.snapEnabled = !state.snapEnabled
                     expanded = false
                 },
             )
