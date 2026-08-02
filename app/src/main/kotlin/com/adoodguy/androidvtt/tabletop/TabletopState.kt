@@ -62,6 +62,8 @@ class TabletopState {
         private set
     var tokenMenuVisible by mutableStateOf(false)
         private set
+    var activeTokenManipulation by mutableStateOf<ActiveTokenManipulation?>(null)
+        private set
 
     val selectedToken: TabletopToken?
         get() = selectedTokenId?.let(::tokenById)
@@ -109,6 +111,7 @@ class TabletopState {
             ScreenVector(delta.x.toDouble(), delta.y.toDouble()),
         ).cameraCenter
         dismissTokenMenu()
+        activeTokenManipulation = null
     }
 
     fun transformBy(pan: Offset, zoomFactor: Float, centroid: Offset) {
@@ -122,6 +125,7 @@ class TabletopState {
         cameraCenter = zoomed.cameraCenter
         pixelsPerWorldUnit = zoomed.pixelsPerWorldUnit
         dismissTokenMenu()
+        activeTokenManipulation = null
     }
 
     fun selectSquareGrid() {
@@ -155,24 +159,32 @@ class TabletopState {
         tokens.add(token)
         selectedTokenId = id
         tokenMenuVisible = false
+        activeTokenManipulation = null
     }
 
-    fun selectToken(tokenId: Long) {
+    fun toggleTokenSelection(tokenId: Long) {
         if (tokenById(tokenId) == null) return
-        selectedTokenId = tokenId
-        tokenMenuVisible = false
+        if (selectedTokenId == tokenId) {
+            clearTokenSelection()
+        } else {
+            selectedTokenId = tokenId
+            tokenMenuVisible = false
+            activeTokenManipulation = null
+        }
     }
 
     fun selectTokenAndOpenMenu(tokenId: Long) {
         if (tokenById(tokenId) == null) return
         selectedTokenId = tokenId
         tokenMenuVisible = true
+        activeTokenManipulation = null
     }
 
     fun beginTokenMove(tokenId: Long) {
         if (tokenById(tokenId) == null) return
         selectedTokenId = tokenId
         tokenMenuVisible = false
+        activeTokenManipulation = null
     }
 
     fun moveTokenByScreenDelta(tokenId: Long, delta: Offset) {
@@ -192,6 +204,32 @@ class TabletopState {
         }
     }
 
+    fun beginTokenResize(tokenId: Long) {
+        if (tokenById(tokenId) == null) return
+        selectedTokenId = tokenId
+        tokenMenuVisible = false
+        activeTokenManipulation = ActiveTokenManipulation(
+            tokenId = tokenId,
+            kind = TokenManipulationKind.SCALE,
+        )
+    }
+
+    fun beginTokenRotation(tokenId: Long) {
+        if (tokenById(tokenId) == null) return
+        selectedTokenId = tokenId
+        tokenMenuVisible = false
+        activeTokenManipulation = ActiveTokenManipulation(
+            tokenId = tokenId,
+            kind = TokenManipulationKind.ROTATION,
+        )
+    }
+
+    fun finishTokenManipulation(tokenId: Long) {
+        if (activeTokenManipulation?.tokenId == tokenId) {
+            activeTokenManipulation = null
+        }
+    }
+
     fun resizeTokenFromScreenPoint(
         tokenId: Long,
         axis: TokenResizeAxis,
@@ -200,6 +238,10 @@ class TabletopState {
         val token = tokenById(tokenId) ?: return
         selectedTokenId = tokenId
         tokenMenuVisible = false
+        activeTokenManipulation = ActiveTokenManipulation(
+            tokenId = tokenId,
+            kind = TokenManipulationKind.SCALE,
+        )
 
         val center = worldToScreen(token.position)
         val deltaX = (screenPoint.x - center.x).toDouble()
@@ -228,6 +270,10 @@ class TabletopState {
         val token = tokenById(tokenId) ?: return
         selectedTokenId = tokenId
         tokenMenuVisible = false
+        activeTokenManipulation = ActiveTokenManipulation(
+            tokenId = tokenId,
+            kind = TokenManipulationKind.ROTATION,
+        )
 
         val center = worldToScreen(token.position)
         val deltaX = (screenPoint.x - center.x).toDouble()
@@ -310,6 +356,7 @@ class TabletopState {
             token.copy(position = snapWorldPoint(WorldPoint.Zero))
         }
         tokenMenuVisible = false
+        activeTokenManipulation = null
     }
 
     fun deleteSelectedToken() {
@@ -321,6 +368,7 @@ class TabletopState {
     fun clearTokenSelection() {
         selectedTokenId = null
         tokenMenuVisible = false
+        activeTokenManipulation = null
     }
 
     fun dismissTokenMenu() {
