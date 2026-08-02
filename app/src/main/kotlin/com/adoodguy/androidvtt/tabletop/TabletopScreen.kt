@@ -9,9 +9,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -34,6 +36,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import com.adoodguy.androidvtt.geometry.GridKind
 import com.adoodguy.androidvtt.geometry.HexOrientation
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @Composable
@@ -158,6 +161,11 @@ private fun BottomBar(state: TabletopState) {
 @Composable
 private fun GridSettingsMenu(state: TabletopState) {
     var expanded by remember { mutableStateOf(false) }
+    var customScaleText by remember(state.displayedUnitsPerCell) {
+        mutableStateOf(formatDecimal(state.displayedUnitsPerCell))
+    }
+    var scaleError by remember { mutableStateOf<String?>(null) }
+
     val currentStyle = when (state.gridKind) {
         GridKind.SQUARE -> "Square"
         GridKind.HEX -> if (state.hexOrientation == HexOrientation.POINTY_TOP) {
@@ -232,7 +240,7 @@ private fun GridSettingsMenu(state: TabletopState) {
             HorizontalDivider()
 
             Text(
-                text = "Scale",
+                text = "Scale presets",
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                 style = MaterialTheme.typography.labelMedium,
             )
@@ -241,8 +249,8 @@ private fun GridSettingsMenu(state: TabletopState) {
                     text = {
                         Text(
                             menuChoice(
-                                state.displayedUnitsPerCell == units,
-                                "${units.roundToInt()} ft / cell",
+                                nearlyEqual(state.displayedUnitsPerCell, units),
+                                "${formatDecimal(units)} ft / cell",
                             ),
                         )
                     },
@@ -252,6 +260,48 @@ private fun GridSettingsMenu(state: TabletopState) {
                     },
                 )
             }
+
+            HorizontalDivider()
+
+            Column(
+                modifier = Modifier
+                    .widthIn(min = 230.dp)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text("Custom scale", style = MaterialTheme.typography.labelMedium)
+                OutlinedTextField(
+                    value = customScaleText,
+                    onValueChange = {
+                        customScaleText = it
+                        scaleError = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Feet per cell") },
+                    singleLine = true,
+                    isError = scaleError != null,
+                )
+                scaleError?.let {
+                    Text(
+                        text = it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+                Button(
+                    onClick = {
+                        val value = customScaleText.toDoubleOrNull()
+                        if (value != null && state.selectUnitScale(value)) {
+                            scaleError = null
+                            expanded = false
+                        } else {
+                            scaleError = "Enter a positive number."
+                        }
+                    },
+                ) {
+                    Text("Apply custom scale")
+                }
+            }
         }
     }
 }
@@ -260,17 +310,48 @@ private fun GridSettingsMenu(state: TabletopState) {
 private fun BoxScope.TokenContextMenu(state: TabletopState) {
     if (!state.tokenMenuVisible) return
     val token = state.selectedToken ?: return
+
+    val selectedSizePreset = TokenSizePreset.entries.firstOrNull {
+        nearlyEqual(token.widthCells, it.widthCells) &&
+            nearlyEqual(token.heightCells, it.heightCells)
+    }
+    val selectedColorPreset = TokenColorPreset.entries.firstOrNull {
+        token.colorArgb == it.argb
+    }
+
     var sizeMenuExpanded by remember(token.id) { mutableStateOf(false) }
     var colorMenuExpanded by remember(token.id) { mutableStateOf(false) }
+    var rotationMenuExpanded by remember(token.id) { mutableStateOf(false) }
+    var markerMenuExpanded by remember(token.id) { mutableStateOf(false) }
+
+    var customWidthText by remember(token.id, token.widthCells) {
+        mutableStateOf(formatDecimal(token.widthCells))
+    }
+    var customHeightText by remember(token.id, token.heightCells) {
+        mutableStateOf(formatDecimal(token.heightCells))
+    }
+    var customColorText by remember(token.id, token.colorArgb) {
+        mutableStateOf(formatRgbHex(token.colorArgb))
+    }
+    var customRotationText by remember(token.id, token.rotationDegrees) {
+        mutableStateOf(formatDecimal(token.rotationDegrees))
+    }
+
+    var sizeError by remember(token.id) { mutableStateOf<String?>(null) }
+    var colorError by remember(token.id) { mutableStateOf<String?>(null) }
+    var rotationError by remember(token.id) { mutableStateOf<String?>(null) }
 
     Card(
         modifier = Modifier
             .align(Alignment.TopEnd)
             .padding(12.dp)
-            .widthIn(min = 220.dp, max = 300.dp),
+            .widthIn(min = 240.dp, max = 320.dp),
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier
+                .heightIn(max = 560.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text("Token settings", style = MaterialTheme.typography.titleSmall)
@@ -278,53 +359,249 @@ private fun BoxScope.TokenContextMenu(state: TabletopState) {
             OutlinedTextField(
                 value = token.name,
                 onValueChange = state::renameSelectedToken,
+                modifier = Modifier.fillMaxWidth(),
                 label = { Text("Name") },
                 singleLine = true,
             )
 
+            Text("Size", style = MaterialTheme.typography.labelMedium)
             Box {
                 AssistChip(
                     onClick = { sizeMenuExpanded = true },
-                    label = { Text("Size: ${token.footprint.label}") },
+                    label = {
+                        Text(
+                            selectedSizePreset?.label
+                                ?: "${formatDecimal(token.widthCells)} × " +
+                                "${formatDecimal(token.heightCells)} cells",
+                        )
+                    },
                 )
                 DropdownMenu(
                     expanded = sizeMenuExpanded,
                     onDismissRequest = { sizeMenuExpanded = false },
                 ) {
-                    TokenFootprint.entries.forEach { footprint ->
+                    TokenSizePreset.entries.forEach { preset ->
                         DropdownMenuItem(
                             text = {
-                                Text(menuChoice(token.footprint == footprint, footprint.label))
+                                Text(menuChoice(selectedSizePreset == preset, preset.label))
                             },
                             onClick = {
-                                state.setSelectedTokenFootprint(footprint)
+                                state.selectSelectedTokenSizePreset(preset)
                                 sizeMenuExpanded = false
+                                sizeError = null
                             },
                         )
                     }
                 }
             }
 
+            OutlinedTextField(
+                value = customWidthText,
+                onValueChange = {
+                    customWidthText = it
+                    sizeError = null
+                },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Custom width in cells") },
+                singleLine = true,
+                isError = sizeError != null,
+            )
+            OutlinedTextField(
+                value = customHeightText,
+                onValueChange = {
+                    customHeightText = it
+                    sizeError = null
+                },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Custom height in cells") },
+                singleLine = true,
+                isError = sizeError != null,
+            )
+            sizeError?.let {
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+            Button(
+                onClick = {
+                    val width = customWidthText.toDoubleOrNull()
+                    val height = customHeightText.toDoubleOrNull()
+                    if (
+                        width != null &&
+                        height != null &&
+                        state.applySelectedTokenCustomSize(width, height)
+                    ) {
+                        sizeError = null
+                    } else {
+                        sizeError = "Width and height must each be 0.1 to 100 cells."
+                    }
+                },
+            ) {
+                Text("Apply custom size")
+            }
+
+            HorizontalDivider()
+
+            Text("Color", style = MaterialTheme.typography.labelMedium)
             Box {
                 AssistChip(
                     onClick = { colorMenuExpanded = true },
-                    label = { Text("Color: ${token.color.label}") },
+                    label = {
+                        Text(selectedColorPreset?.label ?: formatRgbHex(token.colorArgb))
+                    },
                 )
                 DropdownMenu(
                     expanded = colorMenuExpanded,
                     onDismissRequest = { colorMenuExpanded = false },
                 ) {
-                    TokenColor.entries.forEach { color ->
+                    TokenColorPreset.entries.forEach { preset ->
                         DropdownMenuItem(
-                            text = { Text(menuChoice(token.color == color, color.label)) },
+                            text = {
+                                Text(menuChoice(selectedColorPreset == preset, preset.label))
+                            },
                             onClick = {
-                                state.setSelectedTokenColor(color)
+                                state.selectSelectedTokenColorPreset(preset)
                                 colorMenuExpanded = false
+                                colorError = null
                             },
                         )
                     }
                 }
             }
+
+            OutlinedTextField(
+                value = customColorText,
+                onValueChange = {
+                    customColorText = it
+                    colorError = null
+                },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Custom color (#RRGGBB)") },
+                singleLine = true,
+                isError = colorError != null,
+            )
+            colorError?.let {
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+            Button(
+                onClick = {
+                    if (state.applySelectedTokenCustomColor(customColorText)) {
+                        colorError = null
+                    } else {
+                        colorError = "Use six hexadecimal digits, such as #34A8D8."
+                    }
+                },
+            ) {
+                Text("Apply custom color")
+            }
+
+            HorizontalDivider()
+
+            Text("Rotation", style = MaterialTheme.typography.labelMedium)
+            Box {
+                AssistChip(
+                    onClick = { rotationMenuExpanded = true },
+                    label = { Text("${formatDecimal(token.rotationDegrees)}°") },
+                )
+                DropdownMenu(
+                    expanded = rotationMenuExpanded,
+                    onDismissRequest = { rotationMenuExpanded = false },
+                ) {
+                    rotationPresets.forEach { degrees ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    menuChoice(
+                                        nearlyEqual(token.rotationDegrees, degrees),
+                                        "${formatDecimal(degrees)}°",
+                                    ),
+                                )
+                            },
+                            onClick = {
+                                state.selectSelectedTokenRotation(degrees)
+                                rotationMenuExpanded = false
+                                rotationError = null
+                            },
+                        )
+                    }
+                }
+            }
+
+            OutlinedTextField(
+                value = customRotationText,
+                onValueChange = {
+                    customRotationText = it
+                    rotationError = null
+                },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Custom rotation in degrees") },
+                singleLine = true,
+                isError = rotationError != null,
+            )
+            rotationError?.let {
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+            Button(
+                onClick = {
+                    val degrees = customRotationText.toDoubleOrNull()
+                    if (degrees != null && state.selectSelectedTokenRotation(degrees)) {
+                        rotationError = null
+                    } else {
+                        rotationError = "Enter a valid number of degrees."
+                    }
+                },
+            ) {
+                Text("Apply rotation")
+            }
+
+            if (!token.isCircular) {
+                Box {
+                    AssistChip(
+                        onClick = { markerMenuExpanded = true },
+                        label = {
+                            Text("Marker: ${token.orientationMarkerAxis.label}")
+                        },
+                    )
+                    DropdownMenu(
+                        expanded = markerMenuExpanded,
+                        onDismissRequest = { markerMenuExpanded = false },
+                    ) {
+                        TokenOrientationMarkerAxis.entries.forEach { axis ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        menuChoice(
+                                            token.orientationMarkerAxis == axis,
+                                            axis.label,
+                                        ),
+                                    )
+                                },
+                                onClick = {
+                                    state.selectSelectedTokenMarkerAxis(axis)
+                                    markerMenuExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+            } else {
+                Text(
+                    text = "Circular tokens use a radial orientation marker.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+
+            HorizontalDivider()
 
             Button(onClick = state::resetSelectedToken) {
                 Text("Reset to origin")
@@ -339,5 +616,32 @@ private fun BoxScope.TokenContextMenu(state: TabletopState) {
     }
 }
 
+private val rotationPresets = listOf(
+    0.0,
+    45.0,
+    90.0,
+    135.0,
+    180.0,
+    225.0,
+    270.0,
+    315.0,
+)
+
 private fun menuChoice(selected: Boolean, label: String): String =
     if (selected) "✓ $label" else label
+
+private fun nearlyEqual(first: Double, second: Double): Boolean =
+    abs(first - second) < 0.000_001
+
+private fun formatDecimal(value: Double): String =
+    if (nearlyEqual(value, value.roundToInt().toDouble())) {
+        value.roundToInt().toString()
+    } else {
+        value.toString().trimEnd('0').trimEnd('.')
+    }
+
+private fun formatRgbHex(argb: Long): String =
+    "#" + (argb and 0xFFFFFFL)
+        .toString(radix = 16)
+        .uppercase()
+        .padStart(6, '0')
