@@ -8,6 +8,21 @@ enum class TabletopTool {
     DRAW,
 }
 
+enum class TokenColor {
+    BLUE,
+    RED,
+    GREEN,
+    PURPLE,
+}
+
+data class TabletopToken(
+    val id: Long,
+    val name: String,
+    val position: WorldPoint,
+    val diameterWorldUnits: Double,
+    val color: TokenColor,
+)
+
 data class MeasurementLine(
     val start: WorldPoint,
     val end: WorldPoint,
