@@ -17,6 +17,11 @@ import com.adoodguy.androidvtt.geometry.UnitScale
 import com.adoodguy.androidvtt.geometry.ViewportSize
 import com.adoodguy.androidvtt.geometry.ViewportTransform
 import com.adoodguy.androidvtt.geometry.WorldPoint
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.floor
+import kotlin.math.sin
 
 class TabletopState {
     var tool by mutableStateOf(TabletopTool.PAN)
@@ -149,7 +154,13 @@ class TabletopState {
         )
         tokens.add(token)
         selectedTokenId = id
-        tokenMenuVisible = true
+        tokenMenuVisible = false
+    }
+
+    fun selectToken(tokenId: Long) {
+        if (tokenById(tokenId) == null) return
+        selectedTokenId = tokenId
+        tokenMenuVisible = false
     }
 
     fun selectTokenAndOpenMenu(tokenId: Long) {
@@ -178,6 +189,63 @@ class TabletopState {
     fun finishTokenMove(tokenId: Long) {
         updateToken(tokenId) { token ->
             token.copy(position = snapWorldPoint(token.position))
+        }
+    }
+
+    fun resizeTokenFromScreenPoint(
+        tokenId: Long,
+        axis: TokenResizeAxis,
+        screenPoint: Offset,
+    ) {
+        val token = tokenById(tokenId) ?: return
+        selectedTokenId = tokenId
+        tokenMenuVisible = false
+
+        val center = worldToScreen(token.position)
+        val deltaX = (screenPoint.x - center.x).toDouble()
+        val deltaY = (screenPoint.y - center.y).toDouble()
+        val radians = Math.toRadians(token.rotationDegrees)
+        val localX = deltaX * cos(radians) + deltaY * sin(radians)
+        val localY = -deltaX * sin(radians) + deltaY * cos(radians)
+        val pixelsPerCell = pixelsPerWorldUnit * cellSizeWorldUnits
+
+        val rawCells = when (axis) {
+            TokenResizeAxis.WIDTH -> 2.0 * abs(localX) / pixelsPerCell
+            TokenResizeAxis.HEIGHT -> 2.0 * abs(localY) / pixelsPerCell
+        }
+        val snappedCells = snapToIncrement(rawCells, TOKEN_SCALE_INCREMENT_CELLS)
+            .coerceIn(TOKEN_HANDLE_MINIMUM_CELLS, TOKEN_MAXIMUM_CELLS)
+
+        updateToken(tokenId) {
+            when (axis) {
+                TokenResizeAxis.WIDTH -> it.copy(widthCells = snappedCells)
+                TokenResizeAxis.HEIGHT -> it.copy(heightCells = snappedCells)
+            }
+        }
+    }
+
+    fun rotateTokenFromScreenPoint(tokenId: Long, screenPoint: Offset) {
+        val token = tokenById(tokenId) ?: return
+        selectedTokenId = tokenId
+        tokenMenuVisible = false
+
+        val center = worldToScreen(token.position)
+        val deltaX = (screenPoint.x - center.x).toDouble()
+        val deltaY = (screenPoint.y - center.y).toDouble()
+        if (abs(deltaX) < 0.000_001 && abs(deltaY) < 0.000_001) return
+
+        val pointerDegrees = normalizeDegrees(
+            Math.toDegrees(atan2(deltaX, -deltaY)),
+        )
+        val rawRotation = normalizeDegrees(
+            pointerDegrees - token.orientationMarkerBaseDegrees,
+        )
+        val snappedRotation = snapToIncrement(
+            rawRotation,
+            TOKEN_ROTATION_INCREMENT_DEGREES,
+        )
+        updateToken(tokenId) {
+            it.copy(rotationDegrees = normalizeDegrees(snappedRotation))
         }
     }
 
@@ -312,7 +380,7 @@ class TabletopState {
     }
 
     private fun isValidTokenDimension(value: Double): Boolean =
-        value.isFinite() && value in 0.1..100.0
+        value.isFinite() && value in 0.1..TOKEN_MAXIMUM_CELLS
 
     private fun parseRgbHex(input: String): Long? {
         val normalized = input.trim().removePrefix("#")
@@ -324,5 +392,15 @@ class TabletopState {
     private fun normalizeDegrees(degrees: Double): Double {
         val normalized = degrees % 360.0
         return if (normalized < 0.0) normalized + 360.0 else normalized
+    }
+
+    private fun snapToIncrement(value: Double, increment: Double): Double =
+        floor(value / increment + 0.5) * increment
+
+    private companion object {
+        const val TOKEN_ROTATION_INCREMENT_DEGREES = 15.0
+        const val TOKEN_SCALE_INCREMENT_CELLS = 0.5
+        const val TOKEN_HANDLE_MINIMUM_CELLS = 0.5
+        const val TOKEN_MAXIMUM_CELLS = 100.0
     }
 }
