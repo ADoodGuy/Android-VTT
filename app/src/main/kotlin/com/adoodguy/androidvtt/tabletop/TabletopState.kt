@@ -45,8 +45,11 @@ class TabletopState {
             id = 1L,
             name = "Token 1",
             position = WorldPoint.Zero,
-            footprint = TokenFootprint.ONE_BY_ONE,
-            color = TokenColor.BLUE,
+            widthCells = TokenSizePreset.ONE_BY_ONE.widthCells,
+            heightCells = TokenSizePreset.ONE_BY_ONE.heightCells,
+            colorArgb = TokenColorPreset.BLUE.argb,
+            rotationDegrees = 0.0,
+            orientationMarkerAxis = TokenOrientationMarkerAxis.MAJOR,
         ),
     )
 
@@ -125,20 +128,24 @@ class TabletopState {
         hexOrientation = orientation
     }
 
-    fun selectUnitScale(units: Double) {
-        if (units in unitScalePresets) {
-            displayedUnitsPerCell = units
-        }
+    fun selectUnitScale(units: Double): Boolean {
+        if (!units.isFinite() || units <= 0.0 || units > 1_000_000.0) return false
+        displayedUnitsPerCell = units
+        return true
     }
 
     fun addToken() {
         val id = nextTokenId++
+        val color = TokenColorPreset.entries[((id - 1) % TokenColorPreset.entries.size).toInt()]
         val token = TabletopToken(
             id = id,
             name = "Token $id",
             position = snapWorldPoint(cameraCenter),
-            footprint = TokenFootprint.ONE_BY_ONE,
-            color = TokenColor.entries[((id - 1) % TokenColor.entries.size).toInt()],
+            widthCells = TokenSizePreset.ONE_BY_ONE.widthCells,
+            heightCells = TokenSizePreset.ONE_BY_ONE.heightCells,
+            colorArgb = color.argb,
+            rotationDegrees = 0.0,
+            orientationMarkerAxis = TokenOrientationMarkerAxis.MAJOR,
         )
         tokens.add(token)
         selectedTokenId = id
@@ -181,14 +188,52 @@ class TabletopState {
         updateToken(tokenId) { it.copy(name = name.take(40)) }
     }
 
-    fun setSelectedTokenFootprint(footprint: TokenFootprint) {
+    fun selectSelectedTokenSizePreset(preset: TokenSizePreset) {
         val tokenId = selectedTokenId ?: return
-        updateToken(tokenId) { it.copy(footprint = footprint) }
+        updateToken(tokenId) {
+            it.copy(
+                widthCells = preset.widthCells,
+                heightCells = preset.heightCells,
+            )
+        }
     }
 
-    fun setSelectedTokenColor(color: TokenColor) {
+    fun applySelectedTokenCustomSize(widthCells: Double, heightCells: Double): Boolean {
+        if (!isValidTokenDimension(widthCells) || !isValidTokenDimension(heightCells)) {
+            return false
+        }
+        val tokenId = selectedTokenId ?: return false
+        updateToken(tokenId) {
+            it.copy(
+                widthCells = widthCells,
+                heightCells = heightCells,
+            )
+        }
+        return true
+    }
+
+    fun selectSelectedTokenColorPreset(preset: TokenColorPreset) {
         val tokenId = selectedTokenId ?: return
-        updateToken(tokenId) { it.copy(color = color) }
+        updateToken(tokenId) { it.copy(colorArgb = preset.argb) }
+    }
+
+    fun applySelectedTokenCustomColor(hexColor: String): Boolean {
+        val color = parseRgbHex(hexColor) ?: return false
+        val tokenId = selectedTokenId ?: return false
+        updateToken(tokenId) { it.copy(colorArgb = color) }
+        return true
+    }
+
+    fun selectSelectedTokenRotation(degrees: Double): Boolean {
+        if (!degrees.isFinite()) return false
+        val tokenId = selectedTokenId ?: return false
+        updateToken(tokenId) { it.copy(rotationDegrees = normalizeDegrees(degrees)) }
+        return true
+    }
+
+    fun selectSelectedTokenMarkerAxis(axis: TokenOrientationMarkerAxis) {
+        val tokenId = selectedTokenId ?: return
+        updateToken(tokenId) { it.copy(orientationMarkerAxis = axis) }
     }
 
     fun resetSelectedToken() {
@@ -264,5 +309,20 @@ class TabletopState {
         val index = tokens.indexOfFirst { it.id == tokenId }
         if (index < 0) return
         tokens[index] = transform(tokens[index])
+    }
+
+    private fun isValidTokenDimension(value: Double): Boolean =
+        value.isFinite() && value in 0.1..100.0
+
+    private fun parseRgbHex(input: String): Long? {
+        val normalized = input.trim().removePrefix("#")
+        if (normalized.length != 6) return null
+        val rgb = normalized.toLongOrNull(radix = 16) ?: return null
+        return 0xFF000000L or rgb
+    }
+
+    private fun normalizeDegrees(degrees: Double): Double {
+        val normalized = degrees % 360.0
+        return if (normalized < 0.0) normalized + 360.0 else normalized
     }
 }
