@@ -39,6 +39,11 @@ enum class TokenOrientationMarkerAxis(val label: String) {
     MINOR("Minor axis"),
 }
 
+enum class TokenResizeAxis {
+    WIDTH,
+    HEIGHT,
+}
+
 data class TabletopToken(
     val id: Long,
     val name: String,
@@ -51,6 +56,20 @@ data class TabletopToken(
 ) {
     val isCircular: Boolean
         get() = abs(widthCells - heightCells) < 0.000_001
+
+    /**
+     * Clockwise angle from screen-up to the marker's unrotated local axis.
+     * Token rotation is added to this angle when the marker is rendered.
+     */
+    val orientationMarkerBaseDegrees: Double
+        get() {
+            if (isCircular) return 0.0
+            val widthIsMajor = widthCells >= heightCells
+            return when (orientationMarkerAxis) {
+                TokenOrientationMarkerAxis.MAJOR -> if (widthIsMajor) 90.0 else 0.0
+                TokenOrientationMarkerAxis.MINOR -> if (widthIsMajor) 0.0 else 90.0
+            }
+        }
 }
 
 data class MeasurementLine(
