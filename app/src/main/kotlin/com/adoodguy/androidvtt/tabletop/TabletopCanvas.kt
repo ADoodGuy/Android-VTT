@@ -2,12 +2,17 @@ package com.adoodguy.androidvtt.tabletop
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
@@ -20,6 +25,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -114,8 +120,9 @@ private fun TokenView(
             .size(containerWidthDp, containerHeightDp)
             .pointerInput(token.id) {
                 detectTapGestures(
-                    onTap = { state.selectToken(token.id) },
-                    onDoubleTap = { state.selectTokenAndOpenMenu(token.id) },
+                    onTap = { state.toggleTokenSelection(token.id) },
+                    onDoubleTap = { state.clearTokenSelection() },
+                    onLongPress = { state.selectTokenAndOpenMenu(token.id) },
                 )
             }
             .pointerInput(
@@ -125,7 +132,7 @@ private fun TokenView(
                 state.hexOrientation,
                 state.snapEnabled,
             ) {
-                detectDragGesturesAfterLongPress(
+                detectDragGestures(
                     onDragStart = { state.beginTokenMove(token.id) },
                     onDragEnd = { state.finishTokenMove(token.id) },
                     onDragCancel = { state.finishTokenMove(token.id) },
@@ -230,6 +237,7 @@ private fun BoxScope.SelectedTokenControls(
         screenPosition = topPoint,
         controlKey = "${token.id}-height-top",
         style = TokenControlHandleStyle.SCALE,
+        onDragStart = { state.beginTokenResize(token.id) },
         onDragTo = {
             state.resizeTokenFromScreenPoint(
                 tokenId = token.id,
@@ -237,11 +245,14 @@ private fun BoxScope.SelectedTokenControls(
                 screenPoint = it,
             )
         },
+        onDragEnd = { state.finishTokenManipulation(token.id) },
+        onDragCancel = { state.finishTokenManipulation(token.id) },
     )
     TokenControlHandle(
         screenPosition = rightPoint,
         controlKey = "${token.id}-width-right",
         style = TokenControlHandleStyle.SCALE,
+        onDragStart = { state.beginTokenResize(token.id) },
         onDragTo = {
             state.resizeTokenFromScreenPoint(
                 tokenId = token.id,
@@ -249,11 +260,14 @@ private fun BoxScope.SelectedTokenControls(
                 screenPoint = it,
             )
         },
+        onDragEnd = { state.finishTokenManipulation(token.id) },
+        onDragCancel = { state.finishTokenManipulation(token.id) },
     )
     TokenControlHandle(
         screenPosition = bottomPoint,
         controlKey = "${token.id}-height-bottom",
         style = TokenControlHandleStyle.SCALE,
+        onDragStart = { state.beginTokenResize(token.id) },
         onDragTo = {
             state.resizeTokenFromScreenPoint(
                 tokenId = token.id,
@@ -261,11 +275,14 @@ private fun BoxScope.SelectedTokenControls(
                 screenPoint = it,
             )
         },
+        onDragEnd = { state.finishTokenManipulation(token.id) },
+        onDragCancel = { state.finishTokenManipulation(token.id) },
     )
     TokenControlHandle(
         screenPosition = leftPoint,
         controlKey = "${token.id}-width-left",
         style = TokenControlHandleStyle.SCALE,
+        onDragStart = { state.beginTokenResize(token.id) },
         onDragTo = {
             state.resizeTokenFromScreenPoint(
                 tokenId = token.id,
@@ -273,18 +290,70 @@ private fun BoxScope.SelectedTokenControls(
                 screenPoint = it,
             )
         },
+        onDragEnd = { state.finishTokenManipulation(token.id) },
+        onDragCancel = { state.finishTokenManipulation(token.id) },
     )
     TokenControlHandle(
         screenPosition = rotationHandlePoint,
         controlKey = "${token.id}-rotation",
         style = TokenControlHandleStyle.ROTATE,
+        onDragStart = { state.beginTokenRotation(token.id) },
         onDragTo = {
             state.rotateTokenFromScreenPoint(
                 tokenId = token.id,
                 screenPoint = it,
             )
         },
+        onDragEnd = { state.finishTokenManipulation(token.id) },
+        onDragCancel = { state.finishTokenManipulation(token.id) },
     )
+
+    state.activeTokenManipulation
+        ?.takeIf { it.tokenId == token.id }
+        ?.let { manipulation ->
+            val rotatedHalfHeightPx = (
+                renderedWidthPx * abs(sin(Math.toRadians(token.rotationDegrees))).toFloat() +
+                    renderedHeightPx * abs(cos(Math.toRadians(token.rotationDegrees))).toFloat()
+                ) / 2f
+            TokenManipulationIndicator(
+                center = center,
+                tokenHalfHeightPx = rotatedHalfHeightPx,
+                text = manipulationText(token, manipulation.kind),
+            )
+        }
+}
+
+@Composable
+private fun BoxScope.TokenManipulationIndicator(
+    center: Offset,
+    tokenHalfHeightPx: Float,
+    text: String,
+) {
+    val density = LocalDensity.current
+    val indicatorWidth = 180.dp
+    val indicatorWidthPx = with(density) { indicatorWidth.toPx() }
+    val gapPx = with(density) { 12.dp.toPx() }
+
+    Surface(
+        modifier = Modifier
+            .zIndex(4f)
+            .offsetInPixels(
+                x = center.x - indicatorWidthPx / 2f,
+                y = center.y + tokenHalfHeightPx + gapPx,
+            )
+            .width(indicatorWidth),
+        shape = RoundedCornerShape(8.dp),
+        tonalElevation = 2.dp,
+        shadowElevation = 2.dp,
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            style = MaterialTheme.typography.labelMedium,
+        )
+    }
 }
 
 @Composable
@@ -292,13 +361,19 @@ private fun BoxScope.TokenControlHandle(
     screenPosition: Offset,
     controlKey: String,
     style: TokenControlHandleStyle,
+    onDragStart: () -> Unit,
     onDragTo: (Offset) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
 ) {
     val density = LocalDensity.current
     val touchTargetDp = 24.dp
     val touchTargetPx = with(density) { touchTargetDp.toPx() }
     val currentScreenPosition = rememberUpdatedState(screenPosition)
+    val currentOnDragStart = rememberUpdatedState(onDragStart)
     val currentOnDragTo = rememberUpdatedState(onDragTo)
+    val currentOnDragEnd = rememberUpdatedState(onDragEnd)
+    val currentOnDragCancel = rememberUpdatedState(onDragCancel)
 
     Box(
         modifier = Modifier
@@ -312,10 +387,13 @@ private fun BoxScope.TokenControlHandle(
                 var pointerScreenPosition = Offset.Zero
                 detectDragGestures(
                     onDragStart = { localStart ->
+                        currentOnDragStart.value()
                         val touchCenter = Offset(touchTargetPx / 2f, touchTargetPx / 2f)
                         pointerScreenPosition =
                             currentScreenPosition.value + (localStart - touchCenter)
                     },
+                    onDragEnd = { currentOnDragEnd.value() },
+                    onDragCancel = { currentOnDragCancel.value() },
                     onDrag = { change, dragAmount ->
                         change.consume()
                         pointerScreenPosition += dragAmount
@@ -367,6 +445,28 @@ private fun BoxScope.TokenControlHandle(
 private enum class TokenControlHandleStyle {
     SCALE,
     ROTATE,
+}
+
+private fun manipulationText(
+    token: TabletopToken,
+    kind: TokenManipulationKind,
+): String =
+    when (kind) {
+        TokenManipulationKind.SCALE ->
+            "Size ${formatManipulationNumber(token.widthCells)} × " +
+                "${formatManipulationNumber(token.heightCells)} cells"
+
+        TokenManipulationKind.ROTATION ->
+            "Rotation ${token.rotationDegrees.roundToInt()}°"
+    }
+
+private fun formatManipulationNumber(value: Double): String {
+    val roundedInteger = value.roundToInt()
+    if (abs(value - roundedInteger.toDouble()) < 0.000_001) {
+        return roundedInteger.toString()
+    }
+    val roundedTenth = (value * 10.0).roundToInt() / 10.0
+    return roundedTenth.toString().removeSuffix(".0")
 }
 
 private fun DrawScope.drawToken(
