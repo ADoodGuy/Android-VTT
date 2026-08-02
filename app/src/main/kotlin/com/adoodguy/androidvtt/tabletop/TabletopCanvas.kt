@@ -1,12 +1,15 @@
 package com.adoodguy.androidvtt.tabletop
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -25,8 +28,8 @@ import com.adoodguy.androidvtt.geometry.MeasurementEngine
 import com.adoodguy.androidvtt.geometry.WorldPoint
 import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.sin
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 @Composable
 fun TabletopCanvas(
@@ -49,6 +52,13 @@ fun TabletopCanvas(
 
         state.tokens.forEach { token ->
             TokenView(
+                state = state,
+                token = token,
+            )
+        }
+
+        state.selectedToken?.let { token ->
+            SelectedTokenControls(
                 state = state,
                 token = token,
             )
@@ -104,7 +114,8 @@ private fun TokenView(
             .size(containerWidthDp, containerHeightDp)
             .pointerInput(token.id) {
                 detectTapGestures(
-                    onTap = { state.selectTokenAndOpenMenu(token.id) },
+                    onTap = { state.selectToken(token.id) },
+                    onDoubleTap = { state.selectTokenAndOpenMenu(token.id) },
                 )
             }
             .pointerInput(
@@ -136,6 +147,228 @@ private fun TokenView(
     }
 }
 
+@Composable
+private fun BoxScope.SelectedTokenControls(
+    state: TabletopState,
+    token: TabletopToken,
+) {
+    val density = LocalDensity.current
+    val center = state.worldToScreen(token.position)
+    val minimumVisualDimensionPx = with(density) { 20.dp.toPx() }
+    val renderedWidthPx = maxOf(
+        (
+            token.widthCells *
+                state.cellSizeWorldUnits *
+                state.pixelsPerWorldUnit
+            ).toFloat(),
+        minimumVisualDimensionPx,
+    )
+    val renderedHeightPx = maxOf(
+        (
+            token.heightCells *
+                state.cellSizeWorldUnits *
+                state.pixelsPerWorldUnit
+            ).toFloat(),
+        minimumVisualDimensionPx,
+    )
+
+    val topPoint = pointAtClockwiseDegrees(
+        center = center,
+        degrees = token.rotationDegrees,
+        distance = renderedHeightPx / 2f,
+    )
+    val rightPoint = pointAtClockwiseDegrees(
+        center = center,
+        degrees = token.rotationDegrees + 90.0,
+        distance = renderedWidthPx / 2f,
+    )
+    val bottomPoint = pointAtClockwiseDegrees(
+        center = center,
+        degrees = token.rotationDegrees + 180.0,
+        distance = renderedHeightPx / 2f,
+    )
+    val leftPoint = pointAtClockwiseDegrees(
+        center = center,
+        degrees = token.rotationDegrees + 270.0,
+        distance = renderedWidthPx / 2f,
+    )
+
+    val markerBaseDegrees = token.orientationMarkerBaseDegrees
+    val markerEdgeRadius = orientationAxisRadius(
+        renderedWidthPx = renderedWidthPx,
+        renderedHeightPx = renderedHeightPx,
+        baseDegrees = markerBaseDegrees,
+    )
+    val markerRadius = (markerEdgeRadius - with(density) { 3.dp.toPx() }).coerceAtLeast(0f)
+    val markerDegrees = token.rotationDegrees + markerBaseDegrees
+    val markerEndpoint = pointAtClockwiseDegrees(
+        center = center,
+        degrees = markerDegrees,
+        distance = markerRadius,
+    )
+    val rotationHandleGapPx = with(density) { 28.dp.toPx() }
+    val rotationHandlePoint = pointAtClockwiseDegrees(
+        center = center,
+        degrees = markerDegrees,
+        distance = markerRadius + rotationHandleGapPx,
+    )
+
+    Canvas(
+        modifier = Modifier
+            .matchParentSize()
+            .zIndex(2f),
+    ) {
+        drawLine(
+            color = Color(0xCC20343F),
+            start = markerEndpoint,
+            end = rotationHandlePoint,
+            strokeWidth = 2f * density,
+        )
+    }
+
+    TokenControlHandle(
+        screenPosition = topPoint,
+        controlKey = "${token.id}-height-top",
+        style = TokenControlHandleStyle.SCALE,
+        onDragTo = {
+            state.resizeTokenFromScreenPoint(
+                tokenId = token.id,
+                axis = TokenResizeAxis.HEIGHT,
+                screenPoint = it,
+            )
+        },
+    )
+    TokenControlHandle(
+        screenPosition = rightPoint,
+        controlKey = "${token.id}-width-right",
+        style = TokenControlHandleStyle.SCALE,
+        onDragTo = {
+            state.resizeTokenFromScreenPoint(
+                tokenId = token.id,
+                axis = TokenResizeAxis.WIDTH,
+                screenPoint = it,
+            )
+        },
+    )
+    TokenControlHandle(
+        screenPosition = bottomPoint,
+        controlKey = "${token.id}-height-bottom",
+        style = TokenControlHandleStyle.SCALE,
+        onDragTo = {
+            state.resizeTokenFromScreenPoint(
+                tokenId = token.id,
+                axis = TokenResizeAxis.HEIGHT,
+                screenPoint = it,
+            )
+        },
+    )
+    TokenControlHandle(
+        screenPosition = leftPoint,
+        controlKey = "${token.id}-width-left",
+        style = TokenControlHandleStyle.SCALE,
+        onDragTo = {
+            state.resizeTokenFromScreenPoint(
+                tokenId = token.id,
+                axis = TokenResizeAxis.WIDTH,
+                screenPoint = it,
+            )
+        },
+    )
+    TokenControlHandle(
+        screenPosition = rotationHandlePoint,
+        controlKey = "${token.id}-rotation",
+        style = TokenControlHandleStyle.ROTATE,
+        onDragTo = {
+            state.rotateTokenFromScreenPoint(
+                tokenId = token.id,
+                screenPoint = it,
+            )
+        },
+    )
+}
+
+@Composable
+private fun BoxScope.TokenControlHandle(
+    screenPosition: Offset,
+    controlKey: String,
+    style: TokenControlHandleStyle,
+    onDragTo: (Offset) -> Unit,
+) {
+    val density = LocalDensity.current
+    val touchTargetDp = 24.dp
+    val touchTargetPx = with(density) { touchTargetDp.toPx() }
+    val currentScreenPosition = rememberUpdatedState(screenPosition)
+    val currentOnDragTo = rememberUpdatedState(onDragTo)
+
+    Box(
+        modifier = Modifier
+            .zIndex(3f)
+            .offsetInPixels(
+                x = screenPosition.x - touchTargetPx / 2f,
+                y = screenPosition.y - touchTargetPx / 2f,
+            )
+            .size(touchTargetDp)
+            .pointerInput(controlKey) {
+                var pointerScreenPosition = Offset.Zero
+                detectDragGestures(
+                    onDragStart = { localStart ->
+                        val touchCenter = Offset(touchTargetPx / 2f, touchTargetPx / 2f)
+                        pointerScreenPosition =
+                            currentScreenPosition.value + (localStart - touchCenter)
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        pointerScreenPosition += dragAmount
+                        currentOnDragTo.value(pointerScreenPosition)
+                    },
+                )
+            },
+    ) {
+        Canvas(Modifier.matchParentSize()) {
+            val visualSize = 9.dp.toPx()
+            val visualCenter = center
+            when (style) {
+                TokenControlHandleStyle.SCALE -> {
+                    val topLeft = Offset(
+                        visualCenter.x - visualSize / 2f,
+                        visualCenter.y - visualSize / 2f,
+                    )
+                    drawRect(
+                        color = Color.White,
+                        topLeft = topLeft,
+                        size = Size(visualSize, visualSize),
+                    )
+                    drawRect(
+                        color = Color(0xFFFF9800),
+                        topLeft = topLeft,
+                        size = Size(visualSize, visualSize),
+                        style = Stroke(width = 2f * density),
+                    )
+                }
+
+                TokenControlHandleStyle.ROTATE -> {
+                    drawCircle(
+                        color = Color(0xFF6A4C93),
+                        radius = visualSize / 2f,
+                        center = visualCenter,
+                    )
+                    drawCircle(
+                        color = Color.White,
+                        radius = visualSize / 2f,
+                        center = visualCenter,
+                        style = Stroke(width = 2f * density),
+                    )
+                }
+            }
+        }
+    }
+}
+
+private enum class TokenControlHandleStyle {
+    SCALE,
+    ROTATE,
+}
+
 private fun DrawScope.drawToken(
     token: TabletopToken,
     renderedWidthPx: Float,
@@ -165,11 +398,17 @@ private fun DrawScope.drawToken(
             size = ovalSize,
         )
 
-        val markerEnd = orientationMarkerEnd(
+        val markerRadius = (
+            orientationAxisRadius(
+                renderedWidthPx = ovalSize.width,
+                renderedHeightPx = ovalSize.height,
+                baseDegrees = token.orientationMarkerBaseDegrees,
+            ) - 3f * density
+            ).coerceAtLeast(0f)
+        val markerEnd = pointAtClockwiseDegrees(
             center = tokenCenter,
-            width = ovalSize.width,
-            height = ovalSize.height,
-            axis = token.orientationMarkerAxis,
+            degrees = token.orientationMarkerBaseDegrees,
+            distance = markerRadius,
         )
         drawLine(
             color = Color(0xAA000000),
@@ -193,29 +432,32 @@ private fun DrawScope.drawToken(
     }
 }
 
-private fun DrawScope.orientationMarkerEnd(
-    center: Offset,
-    width: Float,
-    height: Float,
-    axis: TokenOrientationMarkerAxis,
-): Offset {
-    val markerInset = 5f * density
-    val horizontalDistance = (width / 2f - markerInset).coerceAtLeast(0f)
-    val verticalDistance = (height / 2f - markerInset).coerceAtLeast(0f)
-    val circular = abs(width - height) < 0.5f
-    val widthIsMajor = width >= height
-
-    return when {
-        circular -> Offset(center.x, center.y - verticalDistance)
-        axis == TokenOrientationMarkerAxis.MAJOR && widthIsMajor ->
-            Offset(center.x + horizontalDistance, center.y)
-        axis == TokenOrientationMarkerAxis.MAJOR ->
-            Offset(center.x, center.y - verticalDistance)
-        axis == TokenOrientationMarkerAxis.MINOR && widthIsMajor ->
-            Offset(center.x, center.y - verticalDistance)
-        else ->
-            Offset(center.x + horizontalDistance, center.y)
+private fun orientationAxisRadius(
+    renderedWidthPx: Float,
+    renderedHeightPx: Float,
+    baseDegrees: Double,
+): Float =
+    if (abs(normalizeDegreesForGeometry(baseDegrees) - 90.0) < 0.000_001) {
+        renderedWidthPx / 2f
+    } else {
+        renderedHeightPx / 2f
     }
+
+private fun pointAtClockwiseDegrees(
+    center: Offset,
+    degrees: Double,
+    distance: Float,
+): Offset {
+    val radians = Math.toRadians(degrees)
+    return Offset(
+        x = center.x + sin(radians).toFloat() * distance,
+        y = center.y - cos(radians).toFloat() * distance,
+    )
+}
+
+private fun normalizeDegreesForGeometry(degrees: Double): Double {
+    val normalized = degrees % 360.0
+    return if (normalized < 0.0) normalized + 360.0 else normalized
 }
 
 private fun Modifier.offsetInPixels(x: Float, y: Float): Modifier =
