@@ -11,17 +11,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
@@ -36,7 +43,7 @@ fun TabletopScreen() {
 
     Scaffold(
         topBar = { PrototypeToolbar(state) },
-        bottomBar = { DebugBar(state) },
+        bottomBar = { BottomBar(state) },
     ) { padding ->
         Box(
             modifier = Modifier
@@ -93,48 +100,6 @@ private fun PrototypeToolbar(state: TabletopState) {
             Button(onClick = state::addToken) {
                 Text("Add token")
             }
-
-            FilterChip(
-                selected = state.gridKind == GridKind.SQUARE,
-                onClick = { state.gridKind = GridKind.SQUARE },
-                label = { Text("Square") },
-            )
-            FilterChip(
-                selected = state.gridKind == GridKind.HEX,
-                onClick = { state.gridKind = GridKind.HEX },
-                label = { Text("Hex") },
-            )
-
-            if (state.gridKind == GridKind.HEX) {
-                AssistChip(
-                    onClick = {
-                        state.hexOrientation = when (state.hexOrientation) {
-                            HexOrientation.POINTY_TOP -> HexOrientation.FLAT_TOP
-                            HexOrientation.FLAT_TOP -> HexOrientation.POINTY_TOP
-                        }
-                    },
-                    label = {
-                        Text(
-                            if (state.hexOrientation == HexOrientation.POINTY_TOP) {
-                                "Pointy-top"
-                            } else {
-                                "Flat-top"
-                            },
-                        )
-                    },
-                )
-            }
-
-            FilterChip(
-                selected = state.snapEnabled,
-                onClick = { state.snapEnabled = !state.snapEnabled },
-                label = { Text("Snap") },
-            )
-
-            AssistChip(
-                onClick = state::cycleUnitScale,
-                label = { Text("${state.displayedUnitsPerCell.roundToInt()} ft / cell") },
-            )
         }
 
         val hasMeasurement = state.measurement != null
@@ -168,29 +133,126 @@ private fun PrototypeToolbar(state: TabletopState) {
 }
 
 @Composable
-private fun DebugBar(state: TabletopState) {
-    val pointerWorld = state.cameraCenter
+private fun BottomBar(state: TabletopState) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "Zoom ${(state.pixelsPerWorldUnit / 96.0 * 100).roundToInt()}%",
-            style = MaterialTheme.typography.labelMedium,
-        )
-        Text(
-            text = "Center ${"%.2f".format(pointerWorld.x)}, ${"%.2f".format(pointerWorld.y)}",
-            style = MaterialTheme.typography.labelMedium,
-        )
-        Text(
-            text = when (state.gridKind) {
-                GridKind.SQUARE -> "Square"
-                GridKind.HEX -> "Hex ${state.hexOrientation.name.lowercase()}"
-            },
-            style = MaterialTheme.typography.labelMedium,
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Zoom ${(state.pixelsPerWorldUnit / 96.0 * 100).roundToInt()}%",
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Text(
+                text = "Center ${"%.2f".format(state.cameraCenter.x)}, ${"%.2f".format(state.cameraCenter.y)}",
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+
+        GridSettingsMenu(state)
+    }
+}
+
+@Composable
+private fun GridSettingsMenu(state: TabletopState) {
+    var expanded by remember { mutableStateOf(false) }
+    val currentStyle = when (state.gridKind) {
+        GridKind.SQUARE -> "Square"
+        GridKind.HEX -> if (state.hexOrientation == HexOrientation.POINTY_TOP) {
+            "Hex pointy"
+        } else {
+            "Hex flat"
+        }
+    }
+
+    Box {
+        Button(onClick = { expanded = true }) {
+            Text("Grid: $currentStyle")
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            Text(
+                text = "Style",
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                style = MaterialTheme.typography.labelMedium,
+            )
+            DropdownMenuItem(
+                text = { Text(menuChoice(state.gridKind == GridKind.SQUARE, "Square")) },
+                onClick = {
+                    state.selectSquareGrid()
+                    expanded = false
+                },
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        menuChoice(
+                            state.gridKind == GridKind.HEX &&
+                                state.hexOrientation == HexOrientation.POINTY_TOP,
+                            "Hex — pointy-top",
+                        ),
+                    )
+                },
+                onClick = {
+                    state.selectHexGrid(HexOrientation.POINTY_TOP)
+                    expanded = false
+                },
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        menuChoice(
+                            state.gridKind == GridKind.HEX &&
+                                state.hexOrientation == HexOrientation.FLAT_TOP,
+                            "Hex — flat-top",
+                        ),
+                    )
+                },
+                onClick = {
+                    state.selectHexGrid(HexOrientation.FLAT_TOP)
+                    expanded = false
+                },
+            )
+
+            HorizontalDivider()
+
+            DropdownMenuItem(
+                text = { Text(menuChoice(state.snapEnabled, "Snap to grid")) },
+                onClick = {
+                    state.setSnapEnabled(!state.snapEnabled)
+                    expanded = false
+                },
+            )
+
+            HorizontalDivider()
+
+            Text(
+                text = "Scale",
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                style = MaterialTheme.typography.labelMedium,
+            )
+            state.unitScalePresets.forEach { units ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            menuChoice(
+                                state.displayedUnitsPerCell == units,
+                                "${units.roundToInt()} ft / cell",
+                            ),
+                        )
+                    },
+                    onClick = {
+                        state.setDisplayedUnitsPerCell(units)
+                        expanded = false
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -198,7 +260,8 @@ private fun DebugBar(state: TabletopState) {
 private fun BoxScope.TokenContextMenu(state: TabletopState) {
     if (!state.tokenMenuVisible) return
     val token = state.selectedToken ?: return
-    val sizeInCells = token.diameterWorldUnits / state.cellSizeWorldUnits
+    var sizeMenuExpanded by remember(token.id) { mutableStateOf(false) }
+    var colorMenuExpanded by remember(token.id) { mutableStateOf(false) }
 
     Card(
         modifier = Modifier
@@ -219,18 +282,49 @@ private fun BoxScope.TokenContextMenu(state: TabletopState) {
                 singleLine = true,
             )
 
-            AssistChip(
-                onClick = state::cycleSelectedTokenSize,
-                label = { Text("Size ${formatCellCount(sizeInCells)}") },
-            )
-            AssistChip(
-                onClick = state::cycleSelectedTokenColor,
-                label = {
-                    Text(
-                        "Color ${token.color.name.lowercase().replaceFirstChar { it.uppercase() }}",
-                    )
-                },
-            )
+            Box {
+                AssistChip(
+                    onClick = { sizeMenuExpanded = true },
+                    label = { Text("Size: ${token.footprint.label}") },
+                )
+                DropdownMenu(
+                    expanded = sizeMenuExpanded,
+                    onDismissRequest = { sizeMenuExpanded = false },
+                ) {
+                    TokenFootprint.entries.forEach { footprint ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(menuChoice(token.footprint == footprint, footprint.label))
+                            },
+                            onClick = {
+                                state.setSelectedTokenFootprint(footprint)
+                                sizeMenuExpanded = false
+                            },
+                        )
+                    }
+                }
+            }
+
+            Box {
+                AssistChip(
+                    onClick = { colorMenuExpanded = true },
+                    label = { Text("Color: ${token.color.label}") },
+                )
+                DropdownMenu(
+                    expanded = colorMenuExpanded,
+                    onDismissRequest = { colorMenuExpanded = false },
+                ) {
+                    TokenColor.entries.forEach { color ->
+                        DropdownMenuItem(
+                            text = { Text(menuChoice(token.color == color, color.label)) },
+                            onClick = {
+                                state.setSelectedTokenColor(color)
+                                colorMenuExpanded = false
+                            },
+                        )
+                    }
+                }
+            }
 
             Button(onClick = state::resetSelectedToken) {
                 Text("Reset to origin")
@@ -245,9 +339,5 @@ private fun BoxScope.TokenContextMenu(state: TabletopState) {
     }
 }
 
-private fun formatCellCount(value: Double): String =
-    if (value % 1.0 == 0.0) {
-        "${value.roundToInt()} cell${if (value == 1.0) "" else "s"}"
-    } else {
-        "$value cells"
-    }
+private fun menuChoice(selected: Boolean, label: String): String =
+    if (selected) "✓ $label" else label
