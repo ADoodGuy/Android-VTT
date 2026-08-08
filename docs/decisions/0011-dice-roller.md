@@ -41,15 +41,18 @@ Add **Dice** to Tools with an app-level dice editor, persistent app-wide history
 - Normal rolls evaluate the expression once.
 - Advantage and Disadvantage evaluate the complete expression twice, including all signed dice-set contributions and fixed modifiers, then retain the higher or lower total respectively while displaying both attempts.
 - The final kept total in the result window is tappable and copies the integer result to the Android clipboard.
+- The Single result window includes **Normal**, **Advantage**, and **Disadvantage** reroll controls. These reroll the exact displayed expression without replacing the editor configuration behind the result window.
+- Each Single reroll creates a new history entry and replaces the displayed result with the newly requested keep mode.
 
 ### Result window
 
 The dice editor is configuration-only. Successful Cluster and Single rolls open a separate modal result window above the editor.
 
 - Cluster results contain the histogram and reroll controls.
-- Single results contain the kept total and detailed signed dice-set/fixed-modifier arithmetic.
+- Single results contain the kept total, detailed signed dice-set/fixed-modifier arithmetic, and Normal/Advantage/Disadvantage reroll controls.
 - Closing the result window returns to the unchanged editor controls.
 - Rolling a preset also opens the same result window.
+- Rerolling from a Single result uses the displayed result's expression rather than the current editor state, so preset quick-rolls can be rerolled without overwriting an expression being edited.
 
 ### Presets
 
@@ -75,6 +78,7 @@ Preset behavior supports **Roll** without replacing current editor controls, **E
 - History is no longer permanently shown in the editor; a **History** action in the dice header opens a separate modal history window.
 - Cluster history records the full face/count distribution.
 - Single history records the expression, kept total, and Advantage/Disadvantage comparison when applicable.
+- Single result rerolls are ordinary new history entries, so repeated rerolls participate in the same five-entry limit.
 
 ### UI ownership
 
