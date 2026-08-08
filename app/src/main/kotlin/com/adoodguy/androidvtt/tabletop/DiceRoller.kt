@@ -29,8 +29,7 @@ enum class ClusterRerollRule(val label: String) {
 
 enum class DiceModifierOperation(val symbol: String) {
     ADD("+"),
-    SUBTRACT("−"),
-    ;
+    SUBTRACT("−");
 
     fun toggled(): DiceModifierOperation =
         if (this == ADD) SUBTRACT else ADD
@@ -532,16 +531,16 @@ object DiceRollerStore {
 
     private fun parseSingleModifiers(): List<DiceModifierSpec>? {
         if (singleModifiers.isEmpty()) return emptyList()
-        return buildList {
-            singleModifiers.forEachIndexed { index, draft ->
-                val value = draft.valueText.toIntOrNull()
-                if (value == null || value !in 0..MAX_MODIFIER_VALUE) {
-                    validationMessage = "Modifier ${index + 1}: enter a whole number from 0 to $MAX_MODIFIER_VALUE."
-                    return null
-                }
-                add(DiceModifierSpec(draft.operation, value))
+        val parsed = mutableListOf<DiceModifierSpec>()
+        singleModifiers.forEachIndexed { index, draft ->
+            val value = draft.valueText.toIntOrNull()
+            if (value == null || value !in 0..MAX_MODIFIER_VALUE) {
+                validationMessage = "Modifier ${index + 1}: enter a whole number from 0 to $MAX_MODIFIER_VALUE."
+                return null
             }
+            parsed += DiceModifierSpec(draft.operation, value)
         }
+        return parsed
     }
 
     private fun rollSingleSpec(
@@ -750,26 +749,28 @@ object DiceRollerStore {
     }
 
     private fun legacyModifierDraft(raw: String): DiceModifierDraft {
-        val signed = raw.toIntOrNull() ?: 0
+        val signed = raw.toIntOrNull()?.coerceIn(-MAX_MODIFIER_VALUE, MAX_MODIFIER_VALUE) ?: 0
         return DiceModifierDraft(
             operation = if (signed < 0) {
                 DiceModifierOperation.SUBTRACT
             } else {
                 DiceModifierOperation.ADD
             },
-            valueText = abs(signed).coerceAtMost(MAX_MODIFIER_VALUE).toString(),
+            valueText = abs(signed).toString(),
         )
     }
 
-    private fun legacyModifierSpec(value: Int): DiceModifierSpec =
-        DiceModifierSpec(
-            operation = if (value < 0) {
+    private fun legacyModifierSpec(value: Int): DiceModifierSpec {
+        val safeValue = value.coerceIn(-MAX_MODIFIER_VALUE, MAX_MODIFIER_VALUE)
+        return DiceModifierSpec(
+            operation = if (safeValue < 0) {
                 DiceModifierOperation.SUBTRACT
             } else {
                 DiceModifierOperation.ADD
             },
-            value = abs(value).coerceAtMost(MAX_MODIFIER_VALUE),
+            value = abs(safeValue),
         )
+    }
 
     private fun encodeClusterPreset(preset: ClusterDicePreset): JSONObject =
         JSONObject().apply {
