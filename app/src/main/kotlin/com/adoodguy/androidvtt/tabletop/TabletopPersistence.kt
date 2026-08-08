@@ -15,21 +15,22 @@ internal data class TabletopSceneSnapshot(
     val pixelsPerWorldUnit: Double,
     val displayedUnitsPerCell: Double,
     val tokens: List<TabletopToken>,
-    val measurement: MeasurementLine?,
+    val measurement: MeasurementPath?,
     val strokes: List<DrawingStroke>,
+    val brushColorArgb: Long,
+    val notes: List<TabletopNote>,
 )
 
 /**
  * Persists the non-map tabletop state as one versioned autosave slot.
  *
- * The map already has its own proven URI/geometry store. A later named-scene
- * layer can coordinate this snapshot with the map store without changing the
- * tabletop-state serialization format introduced here.
+ * Schema 2 expands tool content to measurement paths, drawing colors, and notes.
+ * Schema 1 remains readable so existing autosaves migrate in place.
  */
 object TabletopSceneStore {
     private const val PREFS_NAME = "tabletop_scene"
     private const val KEY_AUTOSAVE = "autosave_json"
-    private const val SCHEMA_VERSION = 1
+    private const val SCHEMA_VERSION = 2
 
     private var appContext: Context? = null
     private var attachedState: TabletopState? = null
@@ -71,6 +72,7 @@ object TabletopSceneStore {
             put("cameraY", snapshot.cameraCenter.y)
             put("pixelsPerWorldUnit", snapshot.pixelsPerWorldUnit)
             put("displayedUnitsPerCell", snapshot.displayedUnitsPerCell)
+            put("brushColorArgb", snapshot.brushColorArgb)
             put(
                 "tokens",
                 JSONArray().apply {
@@ -85,6 +87,12 @@ object TabletopSceneStore {
                 "strokes",
                 JSONArray().apply {
                     snapshot.strokes.forEach { stroke -> put(encodeStroke(stroke)) }
+                },
+            )
+            put(
+                "notes",
+                JSONArray().apply {
+                    snapshot.notes.forEach { note -> put(encodeNote(note)) }
                 },
             )
         }
@@ -105,21 +113,34 @@ object TabletopSceneStore {
             put("rotationLocked", token.rotationLocked)
         }
 
-    private fun encodeMeasurement(measurement: MeasurementLine): JSONObject =
+    private fun encodeMeasurement(measurement: MeasurementPath): JSONObject =
         JSONObject().apply {
-            put("start", encodePoint(measurement.start))
-            put("end", encodePoint(measurement.end))
+            put(
+                "points",
+                JSONArray().apply {
+                    measurement.points.forEach { point -> put(encodePoint(point)) }
+                },
+            )
         }
 
     private fun encodeStroke(stroke: DrawingStroke): JSONObject =
         JSONObject().apply {
             put("widthWorldUnits", stroke.widthWorldUnits)
+            put("colorArgb", stroke.colorArgb)
             put(
                 "points",
                 JSONArray().apply {
                     stroke.points.forEach { point -> put(encodePoint(point)) }
                 },
             )
+        }
+
+    private fun encodeNote(note: TabletopNote): JSONObject =
+        JSONObject().apply {
+            put("id", note.id)
+            put("x", note.position.x)
+            put("y", note.position.y)
+            put("text", note.text)
         }
 
     private fun encodePoint(point: WorldPoint): JSONObject =
@@ -130,7 +151,7 @@ object TabletopSceneStore {
 
     private fun decode(root: JSONObject): TabletopSceneSnapshot {
         val version = root.optInt("version", 0)
-        require(version == SCHEMA_VERSION) { "Unsupported tabletop scene schema: $version" }
+        require(version in 1..SCHEMA_VERSION) { "Unsupported tabletop scene schema: $version" }
 
         val tokensJson = root.optJSONArray("tokens") ?: JSONArray()
         val tokens = buildList {
@@ -144,6 +165,21 @@ object TabletopSceneStore {
             for (index in 0 until strokesJson.length()) {
                 decodeStroke(strokesJson.optJSONObject(index))?.let(::add)
             }
+        }
+
+        val notes = if (version >= 2) {
+            val notesJson = root.optJSONArray("notes") ?: JSONArray()
+            buildList {
+                for (index in 0 until notesJson.length()) {
+                    decodeNote(notesJson.optJSONObject(index))?.let(::add)
+                }
+            }
+        } else {
+            emptyList()
+        }
+
+        val measurement = root.optJSONObject("measurement")?.let { json ->
+            if (version >= 2) decodeMeasurement(json) else decodeLegacyMeasurement(json)
         }
 
         return TabletopSceneSnapshot(
@@ -166,8 +202,14 @@ object TabletopSceneStore {
                 5.0,
             ).takeIf { it > 0.0 } ?: 5.0,
             tokens = tokens,
-            measurement = root.optJSONObject("measurement")?.let(::decodeMeasurement),
+            measurement = measurement,
             strokes = strokes,
+            brushColorArgb = if (version >= 2) {
+                root.optLong("brushColorArgb", DEFAULT_DRAWING_COLOR_ARGB)
+            } else {
+                DEFAULT_DRAWING_COLOR_ARGB
+            },
+            notes = notes,
         )
     }
 
@@ -197,10 +239,20 @@ object TabletopSceneStore {
         )
     }
 
-    private fun decodeMeasurement(json: JSONObject): MeasurementLine? {
+    private fun decodeMeasurement(json: JSONObject): MeasurementPath? {
+        val pointsJson = json.optJSONArray("points") ?: return null
+        val points = buildList {
+            for (index in 0 until pointsJson.length()) {
+                decodePoint(pointsJson.optJSONObject(index))?.let(::add)
+            }
+        }
+        return points.takeIf { it.isNotEmpty() }?.let(::MeasurementPath)
+    }
+
+    private fun decodeLegacyMeasurement(json: JSONObject): MeasurementPath? {
         val start = decodePoint(json.optJSONObject("start")) ?: return null
         val end = decodePoint(json.optJSONObject("end")) ?: return null
-        return MeasurementLine(start, end)
+        return MeasurementPath(listOf(start, end))
     }
 
     private fun decodeStroke(json: JSONObject?): DrawingStroke? {
@@ -215,7 +267,23 @@ object TabletopSceneStore {
             }
         }
         if (points.size < 2) return null
-        return DrawingStroke(points = points, widthWorldUnits = width)
+        return DrawingStroke(
+            points = points,
+            widthWorldUnits = width,
+            colorArgb = json.optLong("colorArgb", DEFAULT_DRAWING_COLOR_ARGB),
+        )
+    }
+
+    private fun decodeNote(json: JSONObject?): TabletopNote? {
+        json ?: return null
+        val id = json.optLong("id", 0L).takeIf { it > 0L } ?: return null
+        val x = finiteOrNull(json.optDouble("x")) ?: return null
+        val y = finiteOrNull(json.optDouble("y")) ?: return null
+        return TabletopNote(
+            id = id,
+            position = WorldPoint(x, y),
+            text = json.optString("text", "").take(5_000),
+        )
     }
 
     private fun decodePoint(json: JSONObject?): WorldPoint? {
