@@ -162,6 +162,38 @@ object TabletopMapStore {
         controlAnchorV = configuration.snapAnchorV
     }
 
+    fun restoreSceneConfiguration(sceneConfiguration: TabletopMapConfiguration) {
+        configuration = sceneConfiguration.copy(
+            widthCells = sceneConfiguration.widthCells
+                .takeIf(::isValidDimension) ?: DEFAULT_MAP_WIDTH_CELLS,
+            heightCells = sceneConfiguration.heightCells
+                .takeIf(::isValidDimension) ?: DEFAULT_MAP_WIDTH_CELLS,
+            centerX = sceneConfiguration.centerX.takeIf { it.isFinite() } ?: 0.0,
+            centerY = sceneConfiguration.centerY.takeIf { it.isFinite() } ?: 0.0,
+            rotationDegrees = sceneConfiguration.rotationDegrees
+                .takeIf { it.isFinite() }
+                ?.let(::normalizeDegrees)
+                ?: 0.0,
+            snapAnchorU = sceneConfiguration.snapAnchorU
+                .takeIf(::isValidAnchorCoordinate) ?: 0.0,
+            snapAnchorV = sceneConfiguration.snapAnchorV
+                .takeIf(::isValidAnchorCoordinate) ?: 0.0,
+        )
+        resizeBaseWidthCells = configuration.widthCells
+        resizeBaseHeightCells = configuration.heightCells
+        controlAnchorU = configuration.snapAnchorU
+        controlAnchorV = configuration.snapAnchorV
+        selected = false
+        settingsVisible = false
+        alignmentVisible = false
+        alignmentSnapshot = null
+        activeManipulation = null
+        manipulationAnchorWorld = null
+        manipulationAnchorU = 0.0
+        manipulationAnchorV = 0.0
+        persist()
+    }
+
     fun requestImagePicker() {
         imagePickerRequest += 1
     }
@@ -179,7 +211,11 @@ object TabletopMapStore {
 
         val old = configuration
         val oldUri = old.imageUri?.let(Uri::parse)
-        if (oldUri != null && oldUri != uri) {
+        if (
+            oldUri != null &&
+            oldUri != uri &&
+            !TabletopSceneStore.isMapUriReferencedByOtherScene(oldUri.toString())
+        ) {
             try {
                 context.contentResolver.releasePersistableUriPermission(
                     oldUri,
@@ -596,7 +632,11 @@ object TabletopMapStore {
     fun removeMap() {
         val context = appContext
         val uri = configuration.imageUri?.let(Uri::parse)
-        if (context != null && uri != null) {
+        if (
+            context != null &&
+            uri != null &&
+            !TabletopSceneStore.isMapUriReferencedByOtherScene(uri.toString())
+        ) {
             try {
                 context.contentResolver.releasePersistableUriPermission(
                     uri,
