@@ -14,7 +14,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -24,12 +28,15 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.adoodguy.androidvtt.geometry.WorldPoint
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -82,43 +89,74 @@ private fun BoxScope.MapInteractionLayer(state: TabletopState) {
     val minimumTouchPx = with(density) { 48.dp.toPx() }
     val containerWidthPx = maxOf(rotatedWidthPx, minimumTouchPx)
     val containerHeightPx = maxOf(rotatedHeightPx, minimumTouchPx)
+    val alignmentVisible = TabletopMapStore.alignmentVisible
 
-    Box(
-        modifier = Modifier
-            .zIndex(9f)
-            .mapOffsetInPixels(
-                x = center.x - containerWidthPx / 2f,
-                y = center.y - containerHeightPx / 2f,
-            )
-            .size(
-                with(density) { containerWidthPx.toDp() },
-                with(density) { containerHeightPx.toDp() },
-            )
-            .pointerInput(configuration.imageUri) {
-                detectTapGestures(
-                    onTap = { TabletopMapStore.toggleSelection() },
-                    onDoubleTap = { TabletopMapStore.clearSelection() },
-                    onLongPress = { TabletopMapStore.openSettings() },
+    // During ordinary map editing the map body owns its own tap/drag target.
+    // During alignment that target is intentionally removed: the full tabletop
+    // interaction layer handles one-finger crosshair movement instead. This
+    // avoids large, zoomed maps being constrained by a viewport-sized hit box.
+    if (!alignmentVisible) {
+        Box(
+            modifier = Modifier
+                .zIndex(9f)
+                .mapOffsetInPixels(
+                    x = center.x - containerWidthPx / 2f,
+                    y = center.y - containerHeightPx / 2f,
                 )
-            }
-            .pointerInput(
-                configuration.imageUri,
-                state.pixelsPerWorldUnit,
-                state.snapEnabled,
-            ) {
-                detectDragGestures(
-                    onDragStart = { TabletopMapStore.beginMove() },
-                    onDragEnd = { TabletopMapStore.finishMove(state) },
-                    onDragCancel = { TabletopMapStore.finishMove(state) },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        TabletopMapStore.moveByScreenDelta(state, dragAmount)
-                    },
+                .size(
+                    with(density) { containerWidthPx.toDp() },
+                    with(density) { containerHeightPx.toDp() },
                 )
-            },
-    )
+                .pointerInput(configuration.imageUri) {
+                    detectTapGestures(
+                        onTap = { TabletopMapStore.toggleSelection() },
+                        onDoubleTap = { TabletopMapStore.clearSelection() },
+                        onLongPress = { TabletopMapStore.openSettings() },
+                    )
+                }
+                .pointerInput(
+                    configuration.imageUri,
+                    state.pixelsPerWorldUnit,
+                    state.snapEnabled,
+                ) {
+                    detectDragGestures(
+                        onDragStart = { TabletopMapStore.beginMove() },
+                        onDragEnd = { TabletopMapStore.finishMove(state) },
+                        onDragCancel = { TabletopMapStore.finishMove(state) },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            TabletopMapStore.moveByScreenDelta(state, dragAmount)
+                        },
+                    )
+                },
+        )
+    }
 
     if (!TabletopMapStore.selected) return
+
+    // Keep the selected-map outline visible in both ordinary and alignment modes.
+    Canvas(
+        modifier = Modifier
+            .matchParentSize()
+            .zIndex(10f),
+    ) {
+        rotate(configuration.rotationDegrees.toFloat(), pivot = center) {
+            drawRect(
+                color = Color(0xFFFFB300),
+                topLeft = Offset(center.x - widthPx / 2f, center.y - heightPx / 2f),
+                size = Size(widthPx, heightPx),
+                style = Stroke(width = 3.dp.toPx()),
+            )
+        }
+    }
+
+    if (alignmentVisible) {
+        MapAlignmentController(
+            state = state,
+            configuration = configuration,
+        )
+        return
+    }
 
     val topPoint = pointAtMapDegrees(
         center = center,
@@ -152,14 +190,6 @@ private fun BoxScope.MapInteractionLayer(state: TabletopState) {
             .matchParentSize()
             .zIndex(10f),
     ) {
-        rotate(configuration.rotationDegrees.toFloat(), pivot = center) {
-            drawRect(
-                color = Color(0xFFFFB300),
-                topLeft = Offset(center.x - widthPx / 2f, center.y - heightPx / 2f),
-                size = Size(widthPx, heightPx),
-                style = Stroke(width = 3.dp.toPx()),
-            )
-        }
         drawLine(
             color = Color(0xCC20343F),
             start = topPoint,
@@ -218,14 +248,167 @@ private fun BoxScope.MapInteractionLayer(state: TabletopState) {
         MapManipulationIndicator(
             center = center,
             tokenHalfHeightPx = rotatedHeightPx / 2f,
-            text = when (manipulation) {
-                MapManipulationKind.SCALE ->
-                    "Size ${formatMapManipulation(configuration.widthCells)} × " +
-                        "${formatMapManipulation(configuration.heightCells)} cells"
+            text = mapManipulationText(configuration, manipulation),
+        )
+    }
+}
 
-                MapManipulationKind.ROTATION ->
-                    "Rotation ${configuration.rotationDegrees.roundToInt()}°"
-            },
+private data class AlignmentScaleGestureBase(
+    val widthCells: Double,
+    val snapAnchorU: Double,
+    val rotationDegrees: Double,
+)
+
+@Composable
+private fun BoxScope.MapAlignmentController(
+    state: TabletopState,
+    configuration: TabletopMapConfiguration,
+) {
+    val density = LocalDensity.current
+    val anchor = state.worldToScreen(TabletopMapStore.snapAnchorWorld(state))
+    val scaleRadiusPx = with(density) { 96.dp.toPx() }
+    val rotationRadiusPx = with(density) { 60.dp.toPx() }
+    val controllerMarginPx = with(density) { 28.dp.toPx() }
+
+    // Prefer the side with more visible room so the fixed-size scale controller
+    // stays reachable when the alignment anchor is close to a screen edge.
+    val scaleDirection = if (
+        anchor.x + scaleRadiusPx + controllerMarginPx <= state.viewportSize.width.toFloat()
+    ) {
+        1f
+    } else {
+        -1f
+    }
+    val scaleHandlePoint = Offset(
+        x = anchor.x + scaleDirection * scaleRadiusPx,
+        y = anchor.y,
+    )
+    val rotationHandlePoint = pointAtMapDegrees(
+        center = anchor,
+        degrees = configuration.rotationDegrees,
+        distance = rotationRadiusPx,
+    )
+
+    Canvas(
+        modifier = Modifier
+            .matchParentSize()
+            .zIndex(10f),
+    ) {
+        drawCircle(
+            color = Color(0x996A4C93),
+            radius = rotationRadiusPx,
+            center = anchor,
+            style = Stroke(width = 2.dp.toPx()),
+        )
+        drawLine(
+            color = Color(0xFFFF9800),
+            start = anchor,
+            end = scaleHandlePoint,
+            strokeWidth = 3.dp.toPx(),
+        )
+    }
+
+    var scaleBase by remember(configuration.imageUri) {
+        mutableStateOf<AlignmentScaleGestureBase?>(null)
+    }
+
+    MapControlHandle(
+        screenPosition = scaleHandlePoint,
+        controlKey = "map-alignment-scale",
+        style = MapHandleStyle.SCALE,
+        touchTargetDp = 36.dp,
+        onDragStart = {
+            scaleBase = AlignmentScaleGestureBase(
+                widthCells = configuration.widthCells,
+                snapAnchorU = configuration.snapAnchorU,
+                rotationDegrees = configuration.rotationDegrees,
+            )
+            TabletopMapStore.beginResize()
+        },
+        onDragTo = { pointer ->
+            val base = scaleBase ?: return@MapControlHandle
+            if (base.widthCells <= 0.0 || !base.widthCells.isFinite()) {
+                return@MapControlHandle
+            }
+
+            val currentAnchor = state.worldToScreen(TabletopMapStore.snapAnchorWorld(state))
+            val controllerDistance = hypot(
+                (pointer.x - currentAnchor.x).toDouble(),
+                (pointer.y - currentAnchor.y).toDouble(),
+            )
+            val scaleFactor = (controllerDistance / scaleRadiusPx.toDouble())
+                .coerceAtLeast(0.001)
+
+            // Feed the existing anchor-preserving resize engine a synthetic point
+            // on the map's local width axis. This keeps all existing scale bounds
+            // and magnetic snapping behavior while giving alignment a compact,
+            // zoom-independent controller.
+            val rightDistanceCells = abs((0.5 - base.snapAnchorU) * base.widthCells)
+            val leftDistanceCells = abs((-0.5 - base.snapAnchorU) * base.widthCells)
+            val localSide = if (rightDistanceCells >= leftDistanceCells) 1.0 else -1.0
+            val baseDistanceCells = maxOf(rightDistanceCells, leftDistanceCells)
+            if (baseDistanceCells < 0.000_001) return@MapControlHandle
+
+            val pixelsPerCell = state.pixelsPerWorldUnit * state.cellSizeWorldUnits
+            val syntheticLocalX =
+                localSide * baseDistanceCells * scaleFactor * pixelsPerCell
+            val mapRadians = Math.toRadians(base.rotationDegrees)
+            val syntheticPoint = Offset(
+                x = currentAnchor.x + (syntheticLocalX * cos(mapRadians)).toFloat(),
+                y = currentAnchor.y + (syntheticLocalX * sin(mapRadians)).toFloat(),
+            )
+            TabletopMapStore.resizeFromScreenPoint(
+                state = state,
+                axis = MapResizeAxis.WIDTH,
+                screenPoint = syntheticPoint,
+            )
+        },
+        onDragEnd = {
+            scaleBase = null
+            TabletopMapStore.finishManipulation()
+        },
+        onDragCancel = {
+            scaleBase = null
+            TabletopMapStore.finishManipulation()
+        },
+    )
+
+    MapControlHandle(
+        screenPosition = rotationHandlePoint,
+        controlKey = "map-alignment-rotation",
+        style = MapHandleStyle.ROTATE,
+        touchTargetDp = 36.dp,
+        onDragStart = TabletopMapStore::beginRotation,
+        onDragTo = { pointer ->
+            val currentAnchor = state.worldToScreen(TabletopMapStore.snapAnchorWorld(state))
+            val deltaX = (pointer.x - currentAnchor.x).toDouble()
+            val deltaY = (pointer.y - currentAnchor.y).toDouble()
+            if (abs(deltaX) < 0.000_001 && abs(deltaY) < 0.000_001) {
+                return@MapControlHandle
+            }
+
+            val desiredDegrees = Math.toDegrees(atan2(deltaX, -deltaY))
+            val currentConfiguration = TabletopMapStore.configuration
+            val currentCenter = state.worldToScreen(
+                WorldPoint(currentConfiguration.centerX, currentConfiguration.centerY),
+            )
+            val syntheticPoint = pointAtMapDegrees(
+                center = currentCenter,
+                degrees = desiredDegrees,
+                distance = 100f,
+            )
+            TabletopMapStore.rotateFromScreenPoint(state, syntheticPoint)
+        },
+        onDragEnd = TabletopMapStore::finishManipulation,
+        onDragCancel = TabletopMapStore::finishManipulation,
+    )
+
+    TabletopMapStore.activeManipulation?.let { manipulation ->
+        val currentConfiguration = TabletopMapStore.configuration
+        MapManipulationIndicator(
+            center = anchor,
+            tokenHalfHeightPx = with(density) { 76.dp.toPx() },
+            text = mapManipulationText(currentConfiguration, manipulation),
         )
     }
 }
@@ -235,13 +418,13 @@ private fun BoxScope.MapControlHandle(
     screenPosition: Offset,
     controlKey: String,
     style: MapHandleStyle,
+    touchTargetDp: Dp = 28.dp,
     onDragStart: () -> Unit,
     onDragTo: (Offset) -> Unit,
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit,
 ) {
     val density = LocalDensity.current
-    val touchTargetDp = 28.dp
     val touchTargetPx = with(density) { touchTargetDp.toPx() }
     val currentPosition = rememberUpdatedState(screenPosition)
     val currentOnDragStart = rememberUpdatedState(onDragStart)
@@ -342,6 +525,19 @@ private enum class MapHandleStyle {
     SCALE,
     ROTATE,
 }
+
+private fun mapManipulationText(
+    configuration: TabletopMapConfiguration,
+    manipulation: MapManipulationKind,
+): String =
+    when (manipulation) {
+        MapManipulationKind.SCALE ->
+            "Size ${formatMapManipulation(configuration.widthCells)} × " +
+                "${formatMapManipulation(configuration.heightCells)} cells"
+
+        MapManipulationKind.ROTATION ->
+            "Rotation ${configuration.rotationDegrees.roundToInt()}°"
+    }
 
 private fun pointAtMapDegrees(center: Offset, degrees: Double, distance: Float): Offset {
     val radians = Math.toRadians(degrees)
