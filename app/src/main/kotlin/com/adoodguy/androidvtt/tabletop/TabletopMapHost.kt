@@ -1,6 +1,5 @@
 package com.adoodguy.androidvtt.tabletop
 
-import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -38,14 +37,6 @@ fun TabletopMapHost(content: @Composable () -> Unit) {
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) {
-            try {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                )
-            } catch (_: SecurityException) {
-                // TabletopMapStore also handles providers without persistable grants.
-            }
             TabletopMapStore.importImage(
                 uri = uri,
                 aspectRatio = readMapImageAspectRatio(context, uri),
@@ -71,6 +62,9 @@ fun TabletopMapHost(content: @Composable () -> Unit) {
                 configuration = configuration,
                 onChooseImage = { launcher.launch(arrayOf("image/*")) },
                 onClose = { panelVisible = false },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 12.dp, bottom = 126.dp),
             )
         }
     }
@@ -81,6 +75,7 @@ private fun MapSettingsPanel(
     configuration: TabletopMapConfiguration,
     onChooseImage: () -> Unit,
     onClose: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var widthText by remember(configuration.widthCells) {
         mutableStateOf(formatMapNumber(configuration.widthCells))
@@ -97,8 +92,7 @@ private fun MapSettingsPanel(
     var errorText by remember { mutableStateOf<String?>(null) }
 
     Card(
-        modifier = Modifier
-            .padding(end = 12.dp, bottom = 126.dp)
+        modifier = modifier
             .widthIn(min = 260.dp, max = 330.dp)
             .heightIn(max = 520.dp),
     ) {
@@ -191,6 +185,16 @@ private fun MapSettingsPanel(
                 },
             ) {
                 Text("Apply map geometry")
+            }
+
+            Button(
+                onClick = {
+                    centerXText = "0"
+                    centerYText = "0"
+                    errorText = null
+                },
+            ) {
+                Text("Set center fields to origin")
             }
 
             if (configuration.hasImage) {
