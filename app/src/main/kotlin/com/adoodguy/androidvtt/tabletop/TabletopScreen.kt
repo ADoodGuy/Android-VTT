@@ -1,6 +1,5 @@
 package com.adoodguy.androidvtt.tabletop
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -58,6 +57,8 @@ fun TabletopScreen() {
                 modifier = Modifier.fillMaxSize(),
             )
 
+            WorkspaceInteractionLayer(state)
+
             measurementText(state)?.let { measurement ->
                 Card(
                     modifier = Modifier
@@ -79,6 +80,11 @@ fun TabletopScreen() {
 
 @Composable
 private fun PrototypeToolbar(state: TabletopState) {
+    var clearMenuExpanded by remember { mutableStateOf(false) }
+    val hasMeasurement = state.measurement != null
+    val hasDrawings = state.strokes.isNotEmpty() || state.activeStroke != null
+    val mapConfiguration = TabletopMapStore.configuration
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -86,48 +92,94 @@ private fun PrototypeToolbar(state: TabletopState) {
     ) {
         Row(
             modifier = Modifier
-                .horizontalScroll(rememberScrollState())
+                .fillMaxWidth()
                 .padding(horizontal = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TabletopTool.entries.forEach { tool ->
+            TabletopMode.entries.forEach { mode ->
                 FilterChip(
-                    selected = state.tool == tool,
-                    onClick = { state.tool = tool },
-                    label = { Text(tool.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                    selected = WorkspaceModeStore.mode == mode,
+                    onClick = {
+                        clearMenuExpanded = false
+                        WorkspaceModeStore.select(mode, state)
+                    },
+                    label = {
+                        Text(mode.name.lowercase().replaceFirstChar { it.uppercase() })
+                    },
                 )
-            }
-
-            Button(onClick = state::addToken) {
-                Text("Add token")
             }
         }
 
-        val hasMeasurement = state.measurement != null
-        val hasDrawings = state.strokes.isNotEmpty() || state.activeStroke != null
-
-        // This row always occupies the same height so the tabletop viewport does
-        // not move when clear actions appear or disappear.
+        // This row always occupies the same height. Only its contents change, so
+        // switching workspace modes never resizes or shifts the tabletop viewport.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp)
                 .padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(
-                space = 8.dp,
-                alignment = Alignment.End,
-            ),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (hasMeasurement) {
-                Button(onClick = state::clearMeasurement) {
-                    Text("Clear measurement")
+            when (WorkspaceModeStore.mode) {
+                TabletopMode.TOKENS -> {
+                    Button(onClick = state::addToken) {
+                        Text("Add token")
+                    }
                 }
-            }
-            if (hasDrawings) {
-                Button(onClick = state::clearDrawings) {
-                    Text("Clear drawings")
+
+                TabletopMode.MAPS -> {
+                    Button(onClick = TabletopMapStore::requestImagePicker) {
+                        Text(if (mapConfiguration.hasImage) "Replace map" else "Add map")
+                    }
+                    if (mapConfiguration.hasImage) {
+                        Button(onClick = TabletopMapStore::openSettings) {
+                            Text("Map settings")
+                        }
+                    }
+                }
+
+                TabletopMode.TOOLS -> {
+                    TabletopTool.entries.forEach { tool ->
+                        FilterChip(
+                            selected = state.tool == tool,
+                            onClick = { state.tool = tool },
+                            label = {
+                                Text(tool.name.lowercase().replaceFirstChar { it.uppercase() })
+                            },
+                        )
+                    }
+
+                    if (hasMeasurement || hasDrawings) {
+                        Box {
+                            Button(onClick = { clearMenuExpanded = true }) {
+                                Text("Clear")
+                            }
+                            DropdownMenu(
+                                expanded = clearMenuExpanded,
+                                onDismissRequest = { clearMenuExpanded = false },
+                            ) {
+                                if (hasMeasurement) {
+                                    DropdownMenuItem(
+                                        text = { Text("Clear measurement") },
+                                        onClick = {
+                                            state.clearMeasurement()
+                                            clearMenuExpanded = false
+                                        },
+                                    )
+                                }
+                                if (hasDrawings) {
+                                    DropdownMenuItem(
+                                        text = { Text("Clear drawings") },
+                                        onClick = {
+                                            state.clearDrawings()
+                                            clearMenuExpanded = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
