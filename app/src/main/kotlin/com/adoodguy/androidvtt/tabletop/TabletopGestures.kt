@@ -5,6 +5,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -16,15 +18,20 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
+@Composable
 fun Modifier.tabletopGestures(state: TabletopState): Modifier {
     val measurementActionOpen =
         WorkspaceModeStore.mode == TabletopMode.TOOLS &&
             state.tool == TabletopTool.MEASURE &&
             state.selectedMeasurementMarkerIndex != null
-    val dicePanelOpen =
+    val diceToolActive =
         WorkspaceModeStore.mode == TabletopMode.TOOLS &&
-            state.tool == TabletopTool.DICE &&
-            DiceRollerStore.panelVisible
+            state.tool == TabletopTool.DICE
+    val dicePanelOpen = diceToolActive && DiceRollerStore.panelVisible
+
+    LaunchedEffect(diceToolActive) {
+        DiceToolUiStore.syncActive(diceToolActive)
+    }
 
     // Modal controls must not compete with the full-screen tabletop pointer layer.
     if (measurementActionOpen || dicePanelOpen) return this
