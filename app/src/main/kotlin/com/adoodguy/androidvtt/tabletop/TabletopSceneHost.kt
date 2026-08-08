@@ -51,6 +51,8 @@ fun TabletopSceneHost(content: @Composable () -> Unit) {
         if (managerVisible) {
             SceneManagerPanel(onClose = { managerVisible = false })
         }
+
+        DiceRollerOverlay()
     }
 }
 
