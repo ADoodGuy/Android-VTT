@@ -23,13 +23,14 @@ Grid scales retain the 1, 5, and 10 feet-per-cell presets and also accept a cust
 - A stationary long press selects the token and opens its full settings card.
 - Selecting a token displays four scale handles plus one rotation handle.
 - The four scale handles sit at the token endpoints at 90-degree intervals. Dragging either handle on an axis changes that dimension symmetrically around the fixed token center.
-- Direct scale manipulation snaps to 0.5-cell increments and clamps to 0.5–100 cells.
+- Direct scaling is continuous. When **Snap to grid** is enabled, scale values within 0.1 cell of a 0.5-cell preset magnetically snap to that preset. Outside the magnetic window, scaling remains free. Handle scaling is clamped to 0.5–100 cells.
 - The rotation handle remains 28 dp beyond the endpoint of the visible orientation indicator and rotates with that indicator.
-- Direct rotation manipulation snaps to 15-degree increments.
+- Direct rotation is continuous. When **Snap to grid** is enabled, angles within 3 degrees of a 15-degree preset magnetically snap to that preset. Outside the magnetic window, rotation remains free.
+- Turning **Snap to grid** off disables position snapping, scale magnetic snapping, and rotation magnetic snapping together.
 - While a manipulation handle is being dragged, a screen-aligned label appears beneath the token. It displays the current width and height for scaling or the current angle for rotation, then disappears when the drag ends or is cancelled.
 - The settings card supports renaming, preset and custom size, preset and custom color, numeric rotation, oval marker-axis selection, resetting position, and deletion.
 - Grid style, snap state, preset scale, and custom scale are grouped under a bottom-right **Grid** menu to reduce top-toolbar scrolling.
 
 ## Deferred work
 
-Image-backed tokens, arbitrary property schemas, persistence, z-order controls, configurable manipulation snap increments, rotation/scale undo, and general undo/redo are intentionally deferred to later milestones.
+Image-backed tokens, arbitrary property schemas, persistence, z-order controls, configurable manipulation snap increments and magnetic-window sizes, rotation/scale undo, and general undo/redo are intentionally deferred to later milestones.
