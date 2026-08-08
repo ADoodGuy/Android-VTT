@@ -15,6 +15,7 @@ enum class TabletopTool {
     MEASURE,
     DRAW,
     NOTES,
+    DICE,
 }
 
 enum class DrawingMode {
