@@ -7,6 +7,7 @@ enum class TabletopTool {
     PAN,
     MEASURE,
     DRAW,
+    MAP,
 }
 
 enum class TokenColorPreset(
