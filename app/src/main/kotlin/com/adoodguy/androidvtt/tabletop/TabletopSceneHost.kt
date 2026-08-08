@@ -58,7 +58,7 @@ fun TabletopSceneHost(content: @Composable () -> Unit) {
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 68.dp)
-                    .zIndex(99f),
+                    .zIndex(85f),
             ) {
                 Text("Open dice roller")
             }
