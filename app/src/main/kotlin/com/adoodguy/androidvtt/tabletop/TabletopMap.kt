@@ -10,11 +10,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.drawImage
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -69,10 +68,10 @@ object TabletopMapStore {
                 ?.takeIf(::isValidDimension)
                 ?: DEFAULT_MAP_WIDTH_CELLS,
             centerX = prefs.getString(KEY_CENTER_X, null)?.toDoubleOrNull()
-                ?.takeIf(Double::isFinite)
+                ?.takeIf { it.isFinite() }
                 ?: 0.0,
             centerY = prefs.getString(KEY_CENTER_Y, null)?.toDoubleOrNull()
-                ?.takeIf(Double::isFinite)
+                ?.takeIf { it.isFinite() }
                 ?: 0.0,
         )
     }
@@ -91,6 +90,18 @@ object TabletopMapStore {
         }
 
         val old = configuration
+        val oldUri = old.imageUri?.let(Uri::parse)
+        if (oldUri != null && oldUri != uri) {
+            try {
+                context.contentResolver.releasePersistableUriPermission(
+                    oldUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            } catch (_: SecurityException) {
+                // The old provider did not have a persisted grant.
+            }
+        }
+
         configuration = if (old.hasImage) {
             old.copy(imageUri = uri.toString())
         } else {
@@ -159,14 +170,18 @@ object TabletopMapStore {
         value.isFinite() && value in 0.1..MAX_MAP_DIMENSION_CELLS
 }
 
-fun readMapImageAspectRatio(context: Context, uri: Uri): Double? {
-    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    context.contentResolver.openInputStream(uri)?.use { stream ->
-        BitmapFactory.decodeStream(stream, null, options)
-    }
-    if (options.outWidth <= 0 || options.outHeight <= 0) return null
-    return options.outWidth.toDouble() / options.outHeight.toDouble()
-}
+fun readMapImageAspectRatio(context: Context, uri: Uri): Double? =
+    runCatching {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, options)
+        }
+        if (options.outWidth <= 0 || options.outHeight <= 0) {
+            null
+        } else {
+            options.outWidth.toDouble() / options.outHeight.toDouble()
+        }
+    }.getOrNull()
 
 @Composable
 fun rememberTabletopMapImage(imageUri: String?): ImageBitmap? {
@@ -175,7 +190,9 @@ fun rememberTabletopMapImage(imageUri: String?): ImageBitmap? {
 
     LaunchedEffect(imageUri) {
         image = withContext(Dispatchers.IO) {
-            imageUri?.let { decodeTabletopMap(context, Uri.parse(it)) }
+            runCatching {
+                imageUri?.let { decodeTabletopMap(context, Uri.parse(it)) }
+            }.getOrNull()
         }
     }
     return image
