@@ -38,7 +38,7 @@ private const val MAP_ROTATION_INCREMENT_DEGREES = 15.0
 private const val MAP_ROTATION_MAGNET_THRESHOLD_DEGREES = 3.0
 private const val MAP_SCALE_INCREMENT_CELLS = 0.5
 private const val MAP_SCALE_MAGNET_THRESHOLD_CELLS = 0.1
-private const val MAP_HANDLE_MINIMUM_CELLS = 0.5
+private const val MAP_HANDLE_MINIMUM_CELLS = 0.1
 
 enum class MapResizeAxis {
     WIDTH,
