@@ -374,7 +374,6 @@ private fun PresetControls(
     onSaveNew: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
