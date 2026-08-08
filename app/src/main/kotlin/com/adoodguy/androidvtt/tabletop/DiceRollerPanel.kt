@@ -666,6 +666,23 @@ private fun SingleResultContent() {
     } else {
         AttemptCard("Roll details", roll.first, true)
     }
+
+    HorizontalDivider()
+    Text("Reroll this expression", style = MaterialTheme.typography.titleSmall)
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Button(onClick = { rerollDisplayedSingleAs(DiceKeepMode.NORMAL) }) {
+            Text("Normal")
+        }
+        Button(onClick = { rerollDisplayedSingleAs(DiceKeepMode.ADVANTAGE) }) {
+            Text("Advantage")
+        }
+        Button(onClick = { rerollDisplayedSingleAs(DiceKeepMode.DISADVANTAGE) }) {
+            Text("Disadvantage")
+        }
+    }
 }
 
 @Composable
@@ -748,6 +765,44 @@ private fun BoxScope.DiceHistoryPopup() {
                 }
             }
         }
+    }
+}
+
+private fun rerollDisplayedSingleAs(requestedKeepMode: DiceKeepMode): Boolean {
+    val current = DiceRollerStore.currentSingleRoll ?: return false
+    val savedSets = DiceRollerStore.singleSets.toList()
+    val savedModifiers = DiceRollerStore.singleModifiers.toList()
+    val savedKeepMode = DiceRollerStore.keepMode
+
+    return try {
+        DiceRollerStore.singleSets.clear()
+        DiceRollerStore.singleSets.addAll(
+            current.first.sets.map { set ->
+                DiceSetDraft(
+                    operation = set.operation,
+                    countText = set.count.toString(),
+                    sidesText = set.sides.toString(),
+                )
+            },
+        )
+        DiceRollerStore.singleModifiers.clear()
+        DiceRollerStore.singleModifiers.addAll(
+            current.first.modifiers.map { modifier ->
+                DiceModifierDraft(
+                    operation = modifier.operation,
+                    valueText = modifier.value.toString(),
+                )
+            },
+        )
+        DiceRollerStore.selectKeepMode(requestedKeepMode)
+        DiceRollerStore.rollSingle()
+    } finally {
+        DiceRollerStore.singleSets.clear()
+        DiceRollerStore.singleSets.addAll(savedSets)
+        DiceRollerStore.singleModifiers.clear()
+        DiceRollerStore.singleModifiers.addAll(savedModifiers)
+        DiceRollerStore.selectKeepMode(savedKeepMode)
+        DiceRollerStore.save()
     }
 }
 
