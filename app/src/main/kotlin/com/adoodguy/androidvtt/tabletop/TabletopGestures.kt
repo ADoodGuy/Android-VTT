@@ -6,9 +6,14 @@ import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import com.adoodguy.androidvtt.geometry.WorldPoint
+import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.sin
 
 fun Modifier.tabletopGestures(state: TabletopState): Modifier =
     pointerInput(WorkspaceModeStore.mode, state.tool, TabletopMapStore.alignmentVisible) {
@@ -102,7 +107,16 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
                                 TabletopMapStore.finishMove(state)
                             }
                         } else if (totalMovement < viewConfiguration.touchSlop) {
-                            TabletopMapStore.clearSelection()
+                            // Normal map selection also has a map-local tap target, but
+                            // very large zoomed maps can exceed that child's layout
+                            // constraints. This viewport-level fallback explicitly
+                            // hit-tests the rotated image so any visible map area can
+                            // always relocate/recover the compact control crosshair.
+                            if (screenPointIsInsideMap(state, down.position)) {
+                                TabletopMapStore.selectAtScreenPoint(state, down.position)
+                            } else {
+                                TabletopMapStore.clearSelection()
+                            }
                         }
                     }
 
@@ -121,3 +135,27 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
             }
         }
     }
+
+private fun screenPointIsInsideMap(state: TabletopState, screenPoint: Offset): Boolean {
+    val configuration = TabletopMapStore.configuration
+    if (!configuration.hasImage) return false
+
+    val center = state.worldToScreen(
+        WorldPoint(configuration.centerX, configuration.centerY),
+    )
+    val deltaX = (screenPoint.x - center.x).toDouble()
+    val deltaY = (screenPoint.y - center.y).toDouble()
+    val radians = Math.toRadians(configuration.rotationDegrees)
+
+    // Inverse-rotate the tap into the map's local axes, then test against the
+    // unrotated image rectangle. This avoids false hits in the corners of the
+    // map's rotated screen-space bounding box.
+    val localX = deltaX * cos(radians) + deltaY * sin(radians)
+    val localY = -deltaX * sin(radians) + deltaY * cos(radians)
+    val halfWidthPx =
+        configuration.widthCells * state.cellSizeWorldUnits * state.pixelsPerWorldUnit / 2.0
+    val halfHeightPx =
+        configuration.heightCells * state.cellSizeWorldUnits * state.pixelsPerWorldUnit / 2.0
+
+    return abs(localX) <= halfWidthPx && abs(localY) <= halfHeightPx
+}
