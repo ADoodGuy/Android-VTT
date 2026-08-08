@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -123,6 +124,27 @@ private fun BoxScope.MapSettingsPanel() {
             Button(onClick = TabletopMapStore::openAlignmentAssistant) {
                 Text("Alignment assistant")
             }
+
+            Text("Direct controls", style = MaterialTheme.typography.labelMedium)
+            FilterChip(
+                selected = configuration.movementLocked,
+                onClick = TabletopMapStore::toggleMovementLock,
+                label = { Text("Lock movement") },
+            )
+            FilterChip(
+                selected = configuration.scaleLocked,
+                onClick = TabletopMapStore::toggleScaleLock,
+                label = { Text("Lock scaling") },
+            )
+            FilterChip(
+                selected = configuration.rotationLocked,
+                onClick = TabletopMapStore::toggleRotationLock,
+                label = { Text("Lock rotation") },
+            )
+            Text(
+                "Locked direct controls are hidden on the tabletop. Numeric fields remain available for deliberate corrections.",
+                style = MaterialTheme.typography.bodySmall,
+            )
 
             OutlinedTextField(
                 value = widthText,
@@ -274,8 +296,8 @@ private fun BoxScope.MapAlignmentAssistantPanel() {
             )
             Text(
                 "3. Drag the purple circular handle around its ring to rotate the map about the crosshair. " +
-                    "Choose Done when the printed grid matches. Future snapped map movement uses this " +
-                    "crosshair rather than the image center.",
+                    "Choose Done when the printed grid matches. Future snapped map movement preserves this " +
+                    "saved alignment anchor. Locked direct controls are disabled here too.",
                 style = MaterialTheme.typography.bodySmall,
             )
 
