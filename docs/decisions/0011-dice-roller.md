@@ -17,31 +17,42 @@ Dice configuration is useful across maps and scenes, so it should not be coupled
 
 ## Decision
 
-Add **Dice** to Tools with an app-level dice panel and persistent app-wide history/presets.
+Add **Dice** to Tools with an app-level dice editor, persistent app-wide history/presets, and separate modal result/history windows.
 
 ### Cluster mode
 
 - Rolls one pool with a common die size.
 - Supports d2 through d12.
 - Supports up to 500 dice in a pool.
-- Displays the complete face distribution as a horizontal bar graph with one row for every possible face, including zero-count faces.
+- The result window displays the complete face distribution as a horizontal bar graph with one row for every possible face, including zero-count faces.
 - The entire result row is a touch target; users do not need to hit the filled portion of the bar.
 - Tapping a result row offers reroll rules for:
   - exactly that result,
   - that result or lower,
   - that result or higher.
-- A reroll replaces only matching dice in the current pool.
+- A reroll replaces only matching dice in the current pool and updates the result window.
 - Each reroll creates a new history entry containing the complete updated pool.
 
 ### Single mode
 
 - Supports up to eight dice sets in one expression.
 - Each set supports 1–100 dice and die sizes d2 through d100, with a 500-die expression limit.
-- Supports up to eight ordered arithmetic modifier terms.
-- Each modifier is represented by two controls: an explicit **+ / −** operation button and a non-negative whole-number value field.
-- Modifier terms can be added and removed independently like dice sets.
+- Every dice set has its own optional arithmetic modifier represented by an explicit **+ / −** operation and non-negative whole-number value. The modifier is applied once to that set's rolled subtotal.
+- Supports up to eight additional ordered global arithmetic modifier terms.
+- Global modifiers are also represented by explicit **+ / −** operation buttons and non-negative whole-number value fields.
+- Global modifier terms can be added and removed independently like dice sets.
 - Normal rolls evaluate the expression once.
-- Advantage and Disadvantage evaluate the complete expression twice and retain the higher or lower total respectively, while displaying both attempts.
+- Advantage and Disadvantage evaluate the complete expression twice, including all set and global modifiers, and retain the higher or lower total respectively while displaying both attempts.
+- The final kept total in the result window is tappable and copies the integer result to the Android clipboard.
+
+### Result window
+
+The dice editor is configuration-only. Successful Cluster and Single rolls open a separate modal result window above the editor.
+
+- Cluster results contain the histogram and reroll controls.
+- Single results contain the kept total and detailed per-set/global arithmetic.
+- Closing the result window returns to the unchanged editor controls.
+- Rolling a preset also opens the same result window.
 
 ### Presets
 
@@ -56,8 +67,8 @@ A Cluster preset stores:
 A Single preset stores:
 
 - name,
-- all dice sets,
-- all ordered arithmetic modifier terms,
+- all dice sets and their set-specific modifiers,
+- all ordered global arithmetic modifier terms,
 - Normal / Advantage / Disadvantage selection.
 
 Preset selection uses an inline menu card rather than a popup dropdown. Every saved preset occupies one horizontally scrollable line containing its name/configuration and **Roll / Edit / Delete** controls.
@@ -74,14 +85,15 @@ Preset behavior supports:
 
 - Keep the five most recent dice operations across both modes.
 - History is app-wide and persisted across process restarts.
+- History is no longer permanently shown in the editor; a **History** action in the dice header opens a separate modal history window.
 - Cluster history records the full face/count distribution.
 - Single history records the expression, kept total, and Advantage/Disadvantage comparison when applicable.
 
 ### UI ownership
 
-- Selecting the Dice tool activates and opens the dice panel.
-- The panel is modal and prevents underlying tabletop gestures.
-- Closing the panel while Dice remains selected exposes a compact reopen control.
+- Selecting the Dice tool activates and opens the dice editor.
+- The editor, result window, and history window are modal and prevent underlying tabletop gestures.
+- Closing the editor while Dice remains selected exposes a compact reopen control.
 - Leaving Tools or selecting another tool deactivates the Dice UI.
 
 ## Persistence
@@ -93,7 +105,9 @@ Dice state uses its own versioned SharedPreferences JSON store. It is intentiona
 - Cluster and Single presets,
 - the five-entry roll history.
 
-Schema v3 replaces the v1/v2 single signed modifier field with an ordered modifier list. Older saved editor state, Single presets, and Single history are migrated into equivalent one-term modifier lists rather than discarded.
+Schema v3 replaced the v1/v2 single signed global modifier field with an ordered global modifier list. Schema v4 adds a set-specific modifier to every Single dice set. Older editor state, Single presets, and Single history migrate with a default set modifier of **+0**, preserving all previously stored dice/global-modifier behavior.
+
+Result-window and history-window visibility are transient and are not restored after process restart.
 
 ## Deferred
 
