@@ -1,6 +1,7 @@
 package com.adoodguy.androidvtt.tabletop
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -68,8 +69,9 @@ private fun androidx.compose.foundation.layout.BoxScope.SceneManagerPanel(
         modifier = Modifier
             .fillMaxSize()
             .zIndex(90f)
-            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.28f)),
-    )
+            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.28f))
+            .clickable(onClick = onClose),
+    ) {}
 
     Card(
         modifier = Modifier
@@ -140,9 +142,7 @@ private fun androidx.compose.foundation.layout.BoxScope.SceneManagerPanel(
                 Text("Rename")
             }
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = {
                         TabletopSceneStore.createScene()
