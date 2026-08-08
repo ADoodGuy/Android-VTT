@@ -22,7 +22,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -50,7 +49,7 @@ private fun BoxScope.TabletopNoteCard(
 
     Card(
         modifier = Modifier
-            .zIndex(20f)
+            .zIndex(if (editable) 20f else 0f)
             .noteOffsetInPixels(
                 x = screenAnchor.x - cardWidthPx / 2f,
                 y = screenAnchor.y,
@@ -102,8 +101,8 @@ private fun BoxScope.TabletopNoteCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 10.dp, vertical = 8.dp),
-                    textStyle = MaterialTheme.typography.bodyMedium.merge(
-                        TextStyle(color = MaterialTheme.colorScheme.onSurface),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
                     ),
                     decorationBox = { innerTextField ->
                         Box {
