@@ -7,6 +7,7 @@ import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,9 +61,9 @@ enum class MapManipulationKind {
  * A map is positioned by its center in world/cell coordinates and sized in cells.
  * Rotation is clockwise on screen, with zero degrees meaning the source image is upright.
  *
- * snapAnchorU/V store a point on the source image as normalized offsets from its center.
- * -0.5 is the left/top edge, 0 is the center, and +0.5 is the right/bottom edge.
- * The point scales and rotates with the image and is used when snapping map movement.
+ * snapAnchorU/V store the persistent alignment point on the source image as normalized
+ * offsets from its center. The normal selected-map controller uses a separate temporary
+ * anchor so placing a convenient controller does not damage the saved alignment phase.
  */
 data class TabletopMapConfiguration(
     val imageUri: String? = null,
@@ -73,6 +74,9 @@ data class TabletopMapConfiguration(
     val rotationDegrees: Double = 0.0,
     val snapAnchorU: Double = 0.0,
     val snapAnchorV: Double = 0.0,
+    val movementLocked: Boolean = false,
+    val scaleLocked: Boolean = false,
+    val rotationLocked: Boolean = false,
 ) {
     val hasImage: Boolean get() = !imageUri.isNullOrBlank()
 }
@@ -87,11 +91,16 @@ object TabletopMapStore {
     private const val KEY_ROTATION = "rotation_degrees"
     private const val KEY_SNAP_ANCHOR_U = "snap_anchor_u"
     private const val KEY_SNAP_ANCHOR_V = "snap_anchor_v"
+    private const val KEY_MOVEMENT_LOCKED = "movement_locked"
+    private const val KEY_SCALE_LOCKED = "scale_locked"
+    private const val KEY_ROTATION_LOCKED = "rotation_locked"
 
     private var appContext: Context? = null
     private var resizeBaseWidthCells = DEFAULT_MAP_WIDTH_CELLS
     private var resizeBaseHeightCells = DEFAULT_MAP_WIDTH_CELLS
-    private var resizeAlignmentAnchorWorld: WorldPoint? = null
+    private var manipulationAnchorWorld: WorldPoint? = null
+    private var manipulationAnchorU = 0.0
+    private var manipulationAnchorV = 0.0
     private var alignmentSnapshot: TabletopMapConfiguration? = null
 
     var configuration by mutableStateOf(TabletopMapConfiguration())
@@ -110,6 +119,11 @@ object TabletopMapStore {
         private set
 
     var activeManipulation by mutableStateOf<MapManipulationKind?>(null)
+        private set
+
+    var controlAnchorU by mutableDoubleStateOf(0.0)
+        private set
+    var controlAnchorV by mutableDoubleStateOf(0.0)
         private set
 
     fun initialize(context: Context) {
@@ -140,7 +154,12 @@ object TabletopMapStore {
             snapAnchorV = prefs.getString(KEY_SNAP_ANCHOR_V, null)?.toDoubleOrNull()
                 ?.takeIf(::isValidAnchorCoordinate)
                 ?: 0.0,
+            movementLocked = prefs.getBoolean(KEY_MOVEMENT_LOCKED, false),
+            scaleLocked = prefs.getBoolean(KEY_SCALE_LOCKED, false),
+            rotationLocked = prefs.getBoolean(KEY_ROTATION_LOCKED, false),
         )
+        controlAnchorU = configuration.snapAnchorU
+        controlAnchorV = configuration.snapAnchorV
     }
 
     fun requestImagePicker() {
@@ -185,6 +204,8 @@ object TabletopMapStore {
                 snapAnchorV = 0.0,
             )
         }
+        controlAnchorU = configuration.snapAnchorU
+        controlAnchorV = configuration.snapAnchorV
         selected = true
         settingsVisible = false
         alignmentVisible = false
@@ -193,17 +214,23 @@ object TabletopMapStore {
         persist()
     }
 
-    fun toggleSelection() {
+    fun selectAtScreenPoint(state: TabletopState, screenPoint: Offset) {
         if (!configuration.hasImage || alignmentVisible) return
-        selected = !selected
-        if (!selected) {
-            settingsVisible = false
-            activeManipulation = null
-        }
+        val snapped = nearestGridAnchor(state, state.screenToWorld(screenPoint))
+        val local = normalizedMapCoordinates(configuration, state, snapped)
+        controlAnchorU = local.first
+        controlAnchorV = local.second
+        selected = true
+        settingsVisible = false
+        activeManipulation = null
     }
 
     fun select() {
         if (!configuration.hasImage) return
+        if (!selected) {
+            controlAnchorU = configuration.snapAnchorU
+            controlAnchorV = configuration.snapAnchorV
+        }
         selected = true
         settingsVisible = false
     }
@@ -213,11 +240,12 @@ object TabletopMapStore {
         selected = false
         settingsVisible = false
         activeManipulation = null
+        manipulationAnchorWorld = null
     }
 
     fun openSettings() {
         if (!configuration.hasImage || alignmentVisible) return
-        selected = true
+        select()
         settingsVisible = true
         activeManipulation = null
     }
@@ -233,13 +261,17 @@ object TabletopMapStore {
         settingsVisible = false
         selected = true
         activeManipulation = null
+        manipulationAnchorWorld = null
     }
 
     fun finishAlignment() {
         if (!alignmentVisible) return
         alignmentVisible = false
         alignmentSnapshot = null
+        controlAnchorU = configuration.snapAnchorU
+        controlAnchorV = configuration.snapAnchorV
         activeManipulation = null
+        manipulationAnchorWorld = null
         persist()
     }
 
@@ -247,7 +279,10 @@ object TabletopMapStore {
         alignmentSnapshot?.let { configuration = it }
         alignmentVisible = false
         alignmentSnapshot = null
+        controlAnchorU = configuration.snapAnchorU
+        controlAnchorV = configuration.snapAnchorV
         activeManipulation = null
+        manipulationAnchorWorld = null
         selected = true
         persist()
     }
@@ -257,6 +292,26 @@ object TabletopMapStore {
             snapAnchorU = 0.0,
             snapAnchorV = 0.0,
         )
+    }
+
+    fun toggleMovementLock() {
+        configuration = configuration.copy(movementLocked = !configuration.movementLocked)
+        activeManipulation = null
+        persist()
+    }
+
+    fun toggleScaleLock() {
+        configuration = configuration.copy(scaleLocked = !configuration.scaleLocked)
+        activeManipulation = null
+        manipulationAnchorWorld = null
+        persist()
+    }
+
+    fun toggleRotationLock() {
+        configuration = configuration.copy(rotationLocked = !configuration.rotationLocked)
+        activeManipulation = null
+        manipulationAnchorWorld = null
+        persist()
     }
 
     fun updateGeometry(
@@ -280,14 +335,14 @@ object TabletopMapStore {
     }
 
     fun beginMove() {
-        if (!configuration.hasImage) return
+        if (!configuration.hasImage || configuration.movementLocked) return
         selected = true
         settingsVisible = false
         activeManipulation = null
     }
 
     fun moveByScreenDelta(state: TabletopState, delta: Offset) {
-        if (!configuration.hasImage) return
+        if (!configuration.hasImage || configuration.movementLocked) return
 
         if (alignmentVisible) {
             val radians = Math.toRadians(configuration.rotationDegrees)
@@ -315,21 +370,24 @@ object TabletopMapStore {
     }
 
     fun finishMove(state: TabletopState) {
-        if (!configuration.hasImage) return
-        snapConfiguredAnchorToGrid(
-            state = state,
-            force = alignmentVisible,
-        )
+        if (!configuration.hasImage || configuration.movementLocked) return
+        if (alignmentVisible) {
+            snapConfiguredAnchorToGrid(state, force = true)
+        } else {
+            snapControlAnchorToGrid(state)
+        }
         persist()
     }
 
     fun beginResize() {
-        if (!configuration.hasImage) return
+        if (!configuration.hasImage || configuration.scaleLocked) return
         selected = true
         settingsVisible = false
         resizeBaseWidthCells = configuration.widthCells
         resizeBaseHeightCells = configuration.heightCells
-        resizeAlignmentAnchorWorld = null
+        manipulationAnchorU = controllerAnchorU()
+        manipulationAnchorV = controllerAnchorV()
+        manipulationAnchorWorld = controllerAnchorWorldInternal(state = null)
         activeManipulation = MapManipulationKind.SCALE
     }
 
@@ -338,50 +396,13 @@ object TabletopMapStore {
         axis: MapResizeAxis,
         screenPoint: Offset,
     ) {
-        if (!configuration.hasImage) return
-
-        if (alignmentVisible) {
-            resizeFromScreenPointAroundAlignmentAnchor(state, axis, screenPoint)
-            activeManipulation = MapManipulationKind.SCALE
-            return
+        if (!configuration.hasImage || configuration.scaleLocked) return
+        if (manipulationAnchorWorld == null) {
+            manipulationAnchorU = controllerAnchorU()
+            manipulationAnchorV = controllerAnchorV()
+            manipulationAnchorWorld = controllerAnchorWorld(state)
         }
-
-        val center = state.worldToScreen(WorldPoint(configuration.centerX, configuration.centerY))
-        val deltaX = (screenPoint.x - center.x).toDouble()
-        val deltaY = (screenPoint.y - center.y).toDouble()
-        val radians = Math.toRadians(configuration.rotationDegrees)
-        val localX = deltaX * cos(radians) + deltaY * sin(radians)
-        val localY = -deltaX * sin(radians) + deltaY * cos(radians)
-        val pixelsPerCell = state.pixelsPerWorldUnit * state.cellSizeWorldUnits
-
-        val rawAxisCells = when (axis) {
-            MapResizeAxis.WIDTH -> 2.0 * abs(localX) / pixelsPerCell
-            MapResizeAxis.HEIGHT -> 2.0 * abs(localY) / pixelsPerCell
-        }
-        val adjustedAxisCells = magneticScale(rawAxisCells, state.snapEnabled)
-        val baseAxisCells = when (axis) {
-            MapResizeAxis.WIDTH -> resizeBaseWidthCells
-            MapResizeAxis.HEIGHT -> resizeBaseHeightCells
-        }
-        if (baseAxisCells <= 0.0 || !baseAxisCells.isFinite()) return
-
-        val scaleFactor = boundedScaleFactor(adjustedAxisCells / baseAxisCells)
-        configuration = configuration.copy(
-            widthCells = resizeBaseWidthCells * scaleFactor,
-            heightCells = resizeBaseHeightCells * scaleFactor,
-        )
-        activeManipulation = MapManipulationKind.SCALE
-    }
-
-    private fun resizeFromScreenPointAroundAlignmentAnchor(
-        state: TabletopState,
-        axis: MapResizeAxis,
-        screenPoint: Offset,
-    ) {
-        val fixedAnchorWorld = resizeAlignmentAnchorWorld
-            ?: mapSnapAnchorWorld(configuration, state).also {
-                resizeAlignmentAnchorWorld = it
-            }
+        val fixedAnchorWorld = manipulationAnchorWorld ?: return
         val anchorScreen = state.worldToScreen(fixedAnchorWorld)
         val deltaX = (screenPoint.x - anchorScreen.x).toDouble()
         val deltaY = (screenPoint.y - anchorScreen.y).toDouble()
@@ -393,14 +414,18 @@ object TabletopMapStore {
         val rawScaleFactor = when (axis) {
             MapResizeAxis.WIDTH -> {
                 val side = sign(localX).takeIf { it != 0.0 } ?: 1.0
-                val baseDistanceCells = abs((side * 0.5 - configuration.snapAnchorU) * resizeBaseWidthCells)
+                val baseDistanceCells = abs(
+                    (side * 0.5 - manipulationAnchorU) * resizeBaseWidthCells,
+                )
                 if (baseDistanceCells < 0.000_001) return
                 abs(localX) / pixelsPerCell / baseDistanceCells
             }
 
             MapResizeAxis.HEIGHT -> {
                 val side = sign(localY).takeIf { it != 0.0 } ?: 1.0
-                val baseDistanceCells = abs((side * 0.5 - configuration.snapAnchorV) * resizeBaseHeightCells)
+                val baseDistanceCells = abs(
+                    (side * 0.5 - manipulationAnchorV) * resizeBaseHeightCells,
+                )
                 if (baseDistanceCells < 0.000_001) return
                 abs(localY) / pixelsPerCell / baseDistanceCells
             }
@@ -418,7 +443,14 @@ object TabletopMapStore {
             widthCells = resizeBaseWidthCells * scaleFactor,
             heightCells = resizeBaseHeightCells * scaleFactor,
         )
-        configuration = recenterMapForFixedAnchor(resized, fixedAnchorWorld, state)
+        configuration = recenterMapForFixedAnchor(
+            resizedOrRotated = resized,
+            fixedAnchorWorld = fixedAnchorWorld,
+            state = state,
+            anchorU = manipulationAnchorU,
+            anchorV = manipulationAnchorV,
+        )
+        activeManipulation = MapManipulationKind.SCALE
     }
 
     private fun boundedScaleFactor(requested: Double): Double {
@@ -434,47 +466,86 @@ object TabletopMapStore {
     }
 
     fun beginRotation() {
-        if (!configuration.hasImage) return
+        if (!configuration.hasImage || configuration.rotationLocked) return
         selected = true
         settingsVisible = false
+        manipulationAnchorU = controllerAnchorU()
+        manipulationAnchorV = controllerAnchorV()
+        manipulationAnchorWorld = null
         activeManipulation = MapManipulationKind.ROTATION
     }
 
     fun rotateFromScreenPoint(state: TabletopState, screenPoint: Offset) {
-        if (!configuration.hasImage) return
-        val fixedAnchorWorld = if (alignmentVisible) {
-            mapSnapAnchorWorld(configuration, state)
-        } else {
-            null
-        }
+        if (!configuration.hasImage || configuration.rotationLocked) return
+        val fixedAnchorWorld = manipulationAnchorWorld
+            ?: controllerAnchorWorld(state).also { manipulationAnchorWorld = it }
         val center = state.worldToScreen(WorldPoint(configuration.centerX, configuration.centerY))
         val deltaX = (screenPoint.x - center.x).toDouble()
         val deltaY = (screenPoint.y - center.y).toDouble()
         if (abs(deltaX) < 0.000_001 && abs(deltaY) < 0.000_001) return
 
         val raw = normalizeDegrees(Math.toDegrees(atan2(deltaX, -deltaY)))
-        var rotated = configuration.copy(
+        val rotated = configuration.copy(
             rotationDegrees = magneticRotation(raw, state.snapEnabled),
         )
-        if (fixedAnchorWorld != null) {
-            rotated = recenterMapForFixedAnchor(rotated, fixedAnchorWorld, state)
-        }
-        configuration = rotated
+        configuration = recenterMapForFixedAnchor(
+            resizedOrRotated = rotated,
+            fixedAnchorWorld = fixedAnchorWorld,
+            state = state,
+            anchorU = manipulationAnchorU,
+            anchorV = manipulationAnchorV,
+        )
         activeManipulation = MapManipulationKind.ROTATION
     }
 
     fun finishManipulation() {
         activeManipulation = null
-        resizeAlignmentAnchorWorld = null
+        manipulationAnchorWorld = null
         persist()
     }
 
     fun snapAnchorWorld(state: TabletopState): WorldPoint =
-        mapSnapAnchorWorld(configuration, state)
+        mapAnchorWorld(
+            configuration = configuration,
+            state = state,
+            anchorU = configuration.snapAnchorU,
+            anchorV = configuration.snapAnchorV,
+        )
+
+    fun controllerAnchorWorld(state: TabletopState): WorldPoint =
+        if (alignmentVisible) {
+            snapAnchorWorld(state)
+        } else {
+            mapAnchorWorld(
+                configuration = configuration,
+                state = state,
+                anchorU = controlAnchorU,
+                anchorV = controlAnchorV,
+            )
+        }
+
+    fun controllerAnchorU(): Double =
+        if (alignmentVisible) configuration.snapAnchorU else controlAnchorU
+
+    fun controllerAnchorV(): Double =
+        if (alignmentVisible) configuration.snapAnchorV else controlAnchorV
+
+    private fun controllerAnchorWorldInternal(state: TabletopState?): WorldPoint? =
+        state?.let(::controllerAnchorWorld)
 
     private fun snapConfiguredAnchorToGrid(state: TabletopState, force: Boolean) {
         if (!force && !state.snapEnabled) return
-        val anchor = mapSnapAnchorWorld(configuration, state)
+        val anchor = snapAnchorWorld(state)
+        val snapped = nearestGridAnchor(state, anchor)
+        configuration = configuration.copy(
+            centerX = configuration.centerX + (snapped.x - anchor.x),
+            centerY = configuration.centerY + (snapped.y - anchor.y),
+        )
+    }
+
+    private fun snapControlAnchorToGrid(state: TabletopState) {
+        if (!state.snapEnabled) return
+        val anchor = controllerAnchorWorld(state)
         val snapped = nearestGridAnchor(state, anchor)
         configuration = configuration.copy(
             centerX = configuration.centerX + (snapped.x - anchor.x),
@@ -488,15 +559,31 @@ object TabletopMapStore {
             GridKind.HEX -> state.hexGrid.snapToNearestAnchor(point)
         }
 
+    private fun normalizedMapCoordinates(
+        configuration: TabletopMapConfiguration,
+        state: TabletopState,
+        point: WorldPoint,
+    ): Pair<Double, Double> {
+        val deltaX = point.x - configuration.centerX
+        val deltaY = point.y - configuration.centerY
+        val radians = Math.toRadians(configuration.rotationDegrees)
+        val localX = deltaX * cos(radians) + deltaY * sin(radians)
+        val localY = -deltaX * sin(radians) + deltaY * cos(radians)
+        val widthWorld = configuration.widthCells * state.cellSizeWorldUnits
+        val heightWorld = configuration.heightCells * state.cellSizeWorldUnits
+        if (widthWorld <= 0.0 || heightWorld <= 0.0) return 0.0 to 0.0
+        return localX / widthWorld to localY / heightWorld
+    }
+
     private fun recenterMapForFixedAnchor(
         resizedOrRotated: TabletopMapConfiguration,
         fixedAnchorWorld: WorldPoint,
         state: TabletopState,
+        anchorU: Double,
+        anchorV: Double,
     ): TabletopMapConfiguration {
-        val localX = resizedOrRotated.snapAnchorU *
-            resizedOrRotated.widthCells * state.cellSizeWorldUnits
-        val localY = resizedOrRotated.snapAnchorV *
-            resizedOrRotated.heightCells * state.cellSizeWorldUnits
+        val localX = anchorU * resizedOrRotated.widthCells * state.cellSizeWorldUnits
+        val localY = anchorV * resizedOrRotated.heightCells * state.cellSizeWorldUnits
         val radians = Math.toRadians(resizedOrRotated.rotationDegrees)
         val rotatedX = localX * cos(radians) - localY * sin(radians)
         val rotatedY = localX * sin(radians) + localY * cos(radians)
@@ -520,9 +607,14 @@ object TabletopMapStore {
             }
         }
         configuration = TabletopMapConfiguration()
+        controlAnchorU = 0.0
+        controlAnchorV = 0.0
         alignmentVisible = false
         alignmentSnapshot = null
-        clearSelection()
+        selected = false
+        settingsVisible = false
+        activeManipulation = null
+        manipulationAnchorWorld = null
         persist()
     }
 
@@ -540,6 +632,9 @@ object TabletopMapStore {
                 putString(KEY_ROTATION, config.rotationDegrees.toString())
                 putString(KEY_SNAP_ANCHOR_U, config.snapAnchorU.toString())
                 putString(KEY_SNAP_ANCHOR_V, config.snapAnchorV.toString())
+                putBoolean(KEY_MOVEMENT_LOCKED, config.movementLocked)
+                putBoolean(KEY_SCALE_LOCKED, config.scaleLocked)
+                putBoolean(KEY_ROTATION_LOCKED, config.rotationLocked)
             }
             .apply()
     }
@@ -572,12 +667,14 @@ object TabletopMapStore {
     }
 }
 
-private fun mapSnapAnchorWorld(
+private fun mapAnchorWorld(
     configuration: TabletopMapConfiguration,
     state: TabletopState,
+    anchorU: Double,
+    anchorV: Double,
 ): WorldPoint {
-    val localX = configuration.snapAnchorU * configuration.widthCells * state.cellSizeWorldUnits
-    val localY = configuration.snapAnchorV * configuration.heightCells * state.cellSizeWorldUnits
+    val localX = anchorU * configuration.widthCells * state.cellSizeWorldUnits
+    val localY = anchorV * configuration.heightCells * state.cellSizeWorldUnits
     val radians = Math.toRadians(configuration.rotationDegrees)
     return WorldPoint(
         x = configuration.centerX + localX * cos(radians) - localY * sin(radians),
@@ -670,7 +767,7 @@ private fun DrawScope.drawMapAlignmentGuides(
     configuration: TabletopMapConfiguration,
     state: TabletopState,
 ) {
-    val anchorWorld = mapSnapAnchorWorld(configuration, state)
+    val anchorWorld = TabletopMapStore.snapAnchorWorld(state)
     val anchor = state.worldToScreen(anchorWorld)
     val pixelsPerCell = (state.pixelsPerWorldUnit * state.cellSizeWorldUnits).toFloat()
     val radius = pixelsPerCell * ALIGNMENT_GUIDE_RADIUS_CELLS.toFloat()
