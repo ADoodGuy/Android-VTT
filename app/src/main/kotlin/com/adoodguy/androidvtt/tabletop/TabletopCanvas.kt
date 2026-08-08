@@ -99,8 +99,6 @@ private fun TokenView(
     val renderedWidthPx = maxOf(widthPx, minimumVisualDimensionPx)
     val renderedHeightPx = maxOf(heightPx, minimumVisualDimensionPx)
 
-    // Use the rotated ellipse's bounding box so the full visual remains
-    // touchable without reserving an unnecessarily large square target.
     val radians = Math.toRadians(token.rotationDegrees)
     val absoluteCosine = abs(cos(radians)).toFloat()
     val absoluteSine = abs(sin(radians)).toFloat()
@@ -135,6 +133,7 @@ private fun TokenView(
                 state.gridKind,
                 state.hexOrientation,
                 state.snapEnabled,
+                token.movementLocked,
             ) {
                 detectDragGestures(
                     onDragStart = { state.beginTokenMove(token.id) },
@@ -224,93 +223,100 @@ private fun BoxScope.SelectedTokenControls(
         distance = markerRadius + rotationHandleGapPx,
     )
 
-    Canvas(
-        modifier = Modifier
-            .matchParentSize()
-            .zIndex(2f),
-    ) {
-        drawLine(
-            color = Color(0xCC20343F),
-            start = markerEndpoint,
-            end = rotationHandlePoint,
-            strokeWidth = 2f * density,
+    if (!token.rotationLocked) {
+        Canvas(
+            modifier = Modifier
+                .matchParentSize()
+                .zIndex(2f),
+        ) {
+            drawLine(
+                color = Color(0xCC20343F),
+                start = markerEndpoint,
+                end = rotationHandlePoint,
+                strokeWidth = 2f * density,
+            )
+        }
+    }
+
+    if (!token.scaleLocked) {
+        TokenControlHandle(
+            screenPosition = topPoint,
+            controlKey = "${token.id}-height-top",
+            style = TokenControlHandleStyle.SCALE,
+            onDragStart = { state.beginTokenResize(token.id) },
+            onDragTo = {
+                state.resizeTokenFromScreenPoint(
+                    tokenId = token.id,
+                    axis = TokenResizeAxis.HEIGHT,
+                    screenPoint = it,
+                )
+            },
+            onDragEnd = { state.finishTokenManipulation(token.id) },
+            onDragCancel = { state.finishTokenManipulation(token.id) },
+        )
+        TokenControlHandle(
+            screenPosition = rightPoint,
+            controlKey = "${token.id}-width-right",
+            style = TokenControlHandleStyle.SCALE,
+            onDragStart = { state.beginTokenResize(token.id) },
+            onDragTo = {
+                state.resizeTokenFromScreenPoint(
+                    tokenId = token.id,
+                    axis = TokenResizeAxis.WIDTH,
+                    screenPoint = it,
+                )
+            },
+            onDragEnd = { state.finishTokenManipulation(token.id) },
+            onDragCancel = { state.finishTokenManipulation(token.id) },
+        )
+        TokenControlHandle(
+            screenPosition = bottomPoint,
+            controlKey = "${token.id}-height-bottom",
+            style = TokenControlHandleStyle.SCALE,
+            onDragStart = { state.beginTokenResize(token.id) },
+            onDragTo = {
+                state.resizeTokenFromScreenPoint(
+                    tokenId = token.id,
+                    axis = TokenResizeAxis.HEIGHT,
+                    screenPoint = it,
+                )
+            },
+            onDragEnd = { state.finishTokenManipulation(token.id) },
+            onDragCancel = { state.finishTokenManipulation(token.id) },
+        )
+        TokenControlHandle(
+            screenPosition = leftPoint,
+            controlKey = "${token.id}-width-left",
+            style = TokenControlHandleStyle.SCALE,
+            onDragStart = { state.beginTokenResize(token.id) },
+            onDragTo = {
+                state.resizeTokenFromScreenPoint(
+                    tokenId = token.id,
+                    axis = TokenResizeAxis.WIDTH,
+                    screenPoint = it,
+                )
+            },
+            onDragEnd = { state.finishTokenManipulation(token.id) },
+            onDragCancel = { state.finishTokenManipulation(token.id) },
         )
     }
 
-    TokenControlHandle(
-        screenPosition = topPoint,
-        controlKey = "${token.id}-height-top",
-        style = TokenControlHandleStyle.SCALE,
-        onDragStart = { state.beginTokenResize(token.id) },
-        onDragTo = {
-            state.resizeTokenFromScreenPoint(
-                tokenId = token.id,
-                axis = TokenResizeAxis.HEIGHT,
-                screenPoint = it,
-            )
-        },
-        onDragEnd = { state.finishTokenManipulation(token.id) },
-        onDragCancel = { state.finishTokenManipulation(token.id) },
-    )
-    TokenControlHandle(
-        screenPosition = rightPoint,
-        controlKey = "${token.id}-width-right",
-        style = TokenControlHandleStyle.SCALE,
-        onDragStart = { state.beginTokenResize(token.id) },
-        onDragTo = {
-            state.resizeTokenFromScreenPoint(
-                tokenId = token.id,
-                axis = TokenResizeAxis.WIDTH,
-                screenPoint = it,
-            )
-        },
-        onDragEnd = { state.finishTokenManipulation(token.id) },
-        onDragCancel = { state.finishTokenManipulation(token.id) },
-    )
-    TokenControlHandle(
-        screenPosition = bottomPoint,
-        controlKey = "${token.id}-height-bottom",
-        style = TokenControlHandleStyle.SCALE,
-        onDragStart = { state.beginTokenResize(token.id) },
-        onDragTo = {
-            state.resizeTokenFromScreenPoint(
-                tokenId = token.id,
-                axis = TokenResizeAxis.HEIGHT,
-                screenPoint = it,
-            )
-        },
-        onDragEnd = { state.finishTokenManipulation(token.id) },
-        onDragCancel = { state.finishTokenManipulation(token.id) },
-    )
-    TokenControlHandle(
-        screenPosition = leftPoint,
-        controlKey = "${token.id}-width-left",
-        style = TokenControlHandleStyle.SCALE,
-        onDragStart = { state.beginTokenResize(token.id) },
-        onDragTo = {
-            state.resizeTokenFromScreenPoint(
-                tokenId = token.id,
-                axis = TokenResizeAxis.WIDTH,
-                screenPoint = it,
-            )
-        },
-        onDragEnd = { state.finishTokenManipulation(token.id) },
-        onDragCancel = { state.finishTokenManipulation(token.id) },
-    )
-    TokenControlHandle(
-        screenPosition = rotationHandlePoint,
-        controlKey = "${token.id}-rotation",
-        style = TokenControlHandleStyle.ROTATE,
-        onDragStart = { state.beginTokenRotation(token.id) },
-        onDragTo = {
-            state.rotateTokenFromScreenPoint(
-                tokenId = token.id,
-                screenPoint = it,
-            )
-        },
-        onDragEnd = { state.finishTokenManipulation(token.id) },
-        onDragCancel = { state.finishTokenManipulation(token.id) },
-    )
+    if (!token.rotationLocked) {
+        TokenControlHandle(
+            screenPosition = rotationHandlePoint,
+            controlKey = "${token.id}-rotation",
+            style = TokenControlHandleStyle.ROTATE,
+            onDragStart = { state.beginTokenRotation(token.id) },
+            onDragTo = {
+                state.rotateTokenFromScreenPoint(
+                    tokenId = token.id,
+                    screenPoint = it,
+                )
+            },
+            onDragEnd = { state.finishTokenManipulation(token.id) },
+            onDragCancel = { state.finishTokenManipulation(token.id) },
+        )
+    }
 
     state.activeTokenManipulation
         ?.takeIf { it.tokenId == token.id }
