@@ -3,11 +3,16 @@ package com.adoodguy.androidvtt.tabletop
 import com.adoodguy.androidvtt.geometry.WorldPoint
 import kotlin.math.abs
 
+enum class TabletopMode {
+    TOKENS,
+    MAPS,
+    TOOLS,
+}
+
 enum class TabletopTool {
     PAN,
     MEASURE,
     DRAW,
-    MAP,
 }
 
 enum class TokenColorPreset(
