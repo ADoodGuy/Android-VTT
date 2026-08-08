@@ -6,7 +6,6 @@ import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import kotlin.math.hypot
@@ -47,8 +46,7 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
                 if (!toolActionStarted) {
                     when (gestureMode) {
                         TabletopMode.TOKENS,
-                        TabletopMode.MAPS,
-                        -> Unit
+                        TabletopMode.MAPS -> Unit
 
                         TabletopMode.TOOLS -> when (gestureTool) {
                             TabletopTool.MEASURE -> state.beginMeasurement(down.position)
@@ -61,8 +59,7 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
 
                 when (gestureMode) {
                     TabletopMode.TOKENS,
-                    TabletopMode.MAPS,
-                    -> state.panBy(delta)
+                    TabletopMode.MAPS -> state.panBy(delta)
 
                     TabletopMode.TOOLS -> when (gestureTool) {
                         TabletopTool.PAN -> state.panBy(delta)
