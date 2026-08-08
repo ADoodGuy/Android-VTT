@@ -23,6 +23,7 @@ import androidx.compose.ui.zIndex
 import com.adoodguy.androidvtt.geometry.GridKind
 import com.adoodguy.androidvtt.geometry.MeasurementEngine
 import com.adoodguy.androidvtt.geometry.MeasurementResult
+import com.adoodguy.androidvtt.geometry.WorldPoint
 import kotlin.math.hypot
 import kotlin.math.round
 import kotlin.math.roundToInt
@@ -122,9 +123,11 @@ fun BoxScope.MeasurementOverlay(state: TabletopState) {
                         onDrag = { change, dragAmount ->
                             change.consume()
                             pointerScreenPosition += dragAmount
-                            val currentPath = state.measurement ?: return@detectDragGestures
-                            if (index !in currentPath.points.indices) return@detectDragGestures
-                            currentPath.points[index] = state.snappedWorldPoint(pointerScreenPosition)
+                            val currentPath = state.measurement
+                            if (currentPath != null && index in currentPath.points.indices) {
+                                currentPath.points[index] =
+                                    state.snappedWorldPoint(pointerScreenPosition)
+                            }
                         },
                     )
                 },
@@ -147,8 +150,8 @@ fun measurementTotalText(state: TabletopState): String? {
 
 private fun measureSegment(
     state: TabletopState,
-    start: com.adoodguy.androidvtt.geometry.WorldPoint,
-    end: com.adoodguy.androidvtt.geometry.WorldPoint,
+    start: WorldPoint,
+    end: WorldPoint,
 ): MeasurementResult =
     when (state.gridKind) {
         GridKind.SQUARE -> MeasurementEngine.measureSquare(
