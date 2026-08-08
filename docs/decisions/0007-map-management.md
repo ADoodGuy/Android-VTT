@@ -57,6 +57,8 @@ Normal selected-map manipulation uses the same compact controller proven by the 
 - Direct scaling retains 0.5-cell magnetic anchors with a 0.1-cell magnetic window. Rotation retains 15-degree anchors with a 3-degree magnetic window. Turning **Snap to grid** off makes ordinary movement, scaling, and rotation continuous.
 - Live size/rotation text appears while scale or rotation is active.
 
+Normal map taps are recognized by both the map-local target and a viewport-level fallback. The fallback inverse-rotates the tap into map-local coordinates and explicitly checks whether the tap lies inside the visible map image. This avoids dependence on an oversized Compose child hit target, which can be constrained or displaced when a highly zoomed map is much larger than the viewport. Tapping any visible part of such a map can therefore recover or relocate the compact controller even when its previous crosshair is off-screen.
+
 Movement, scaling, and rotation can be locked independently in Map settings. The movement lock removes the draggable normal crosshair and rejects map translation. The scale lock removes the orange scale stem/handle and rejects direct scaling. The rotation lock removes the purple ring/handle and rejects direct rotation. If movement is locked while another controller remains available, a small noninteractive anchor dot may be shown as the pivot reference. Locks are persisted with the map configuration.
 
 Locks govern direct tabletop manipulation. Numeric map geometry fields remain available as an intentional administrative override.
