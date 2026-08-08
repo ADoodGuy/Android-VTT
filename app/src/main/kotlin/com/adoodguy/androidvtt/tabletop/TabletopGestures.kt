@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.dp
 import com.adoodguy.androidvtt.geometry.WorldPoint
 import kotlin.math.abs
 import kotlin.math.cos
@@ -16,13 +17,20 @@ import kotlin.math.hypot
 import kotlin.math.sin
 
 fun Modifier.tabletopGestures(state: TabletopState): Modifier =
-    pointerInput(WorkspaceModeStore.mode, state.tool, TabletopMapStore.alignmentVisible) {
+    pointerInput(
+        WorkspaceModeStore.mode,
+        state.tool,
+        state.drawingMode,
+        TabletopMapStore.alignmentVisible,
+    ) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = true, pass = PointerEventPass.Main)
             val gestureMode = WorkspaceModeStore.mode
             val gestureTool = state.tool
             val alignmentGesture =
                 gestureMode == TabletopMode.MAPS && TabletopMapStore.alignmentVisible
+            val eraserRadiusPx = 18.dp.toPx()
+            val markerHitRadiusPx = 24.dp.toPx()
             var transformed = false
             var totalMovement = 0.0
             var lastSinglePosition = down.position
@@ -61,9 +69,11 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
                         }
 
                         TabletopMode.TOOLS -> when (gestureTool) {
-                            TabletopTool.MEASURE -> state.beginMeasurement(down.position)
-                            TabletopTool.DRAW -> state.beginStroke(down.position)
-                            TabletopTool.PAN -> Unit
+                            TabletopTool.DRAW -> state.beginDrawing(down.position, eraserRadiusPx)
+                            TabletopTool.PAN,
+                            TabletopTool.MEASURE,
+                            TabletopTool.NOTES,
+                            -> Unit
                         }
                     }
                     toolActionStarted = true
@@ -74,10 +84,6 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
 
                     TabletopMode.MAPS -> {
                         if (alignmentGesture) {
-                            // Alignment anchor movement intentionally uses the entire
-                            // tabletop viewport rather than the map's visual bounds.
-                            // This keeps precise crosshair placement available even
-                            // when a highly zoomed map is larger than the viewport.
                             TabletopMapStore.moveByScreenDelta(state, delta)
                         } else {
                             state.panBy(delta)
@@ -86,8 +92,10 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
 
                     TabletopMode.TOOLS -> when (gestureTool) {
                         TabletopTool.PAN -> state.panBy(delta)
-                        TabletopTool.MEASURE -> state.updateMeasurement(change.position)
-                        TabletopTool.DRAW -> state.appendStrokePoint(change.position)
+                        TabletopTool.DRAW -> state.continueDrawing(change.position, eraserRadiusPx)
+                        TabletopTool.MEASURE,
+                        TabletopTool.NOTES,
+                        -> Unit
                     }
                 }
                 change.consume()
@@ -107,11 +115,6 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
                                 TabletopMapStore.finishMove(state)
                             }
                         } else if (totalMovement < viewConfiguration.touchSlop) {
-                            // Normal map selection also has a map-local tap target, but
-                            // very large zoomed maps can exceed that child's layout
-                            // constraints. This viewport-level fallback explicitly
-                            // hit-tests the rotated image so any visible map area can
-                            // always relocate/recover the compact control crosshair.
                             if (screenPointIsInsideMap(state, down.position)) {
                                 TabletopMapStore.selectAtScreenPoint(state, down.position)
                             } else {
@@ -122,8 +125,17 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
 
                     TabletopMode.TOOLS -> when (gestureTool) {
                         TabletopTool.PAN -> Unit
-                        TabletopTool.MEASURE -> Unit
-                        TabletopTool.DRAW -> if (toolActionStarted) state.finishStroke()
+                        TabletopTool.MEASURE -> {
+                            if (totalMovement < viewConfiguration.touchSlop) {
+                                state.handleMeasurementTap(down.position, markerHitRadiusPx)
+                            }
+                        }
+                        TabletopTool.DRAW -> if (toolActionStarted) state.finishDrawing()
+                        TabletopTool.NOTES -> {
+                            if (totalMovement < viewConfiguration.touchSlop) {
+                                state.addNoteAtScreenPoint(down.position)
+                            }
+                        }
                     }
                 }
             } else if (
@@ -131,7 +143,7 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
                 gestureTool == TabletopTool.DRAW &&
                 toolActionStarted
             ) {
-                state.finishStroke()
+                state.finishDrawing()
             }
         }
     }
@@ -147,9 +159,6 @@ private fun screenPointIsInsideMap(state: TabletopState, screenPoint: Offset): B
     val deltaY = (screenPoint.y - center.y).toDouble()
     val radians = Math.toRadians(configuration.rotationDegrees)
 
-    // Inverse-rotate the tap into the map's local axes, then test against the
-    // unrotated image rectangle. This avoids false hits in the corners of the
-    // map's rotated screen-space bounding box.
     val localX = deltaX * cos(radians) + deltaY * sin(radians)
     val localY = -deltaX * sin(radians) + deltaY * cos(radians)
     val halfWidthPx =
