@@ -11,11 +11,13 @@ import androidx.compose.ui.input.pointer.pointerInput
 import kotlin.math.hypot
 
 fun Modifier.tabletopGestures(state: TabletopState): Modifier =
-    pointerInput(WorkspaceModeStore.mode, state.tool) {
+    pointerInput(WorkspaceModeStore.mode, state.tool, TabletopMapStore.alignmentVisible) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = true, pass = PointerEventPass.Main)
             val gestureMode = WorkspaceModeStore.mode
             val gestureTool = state.tool
+            val alignmentGesture =
+                gestureMode == TabletopMode.MAPS && TabletopMapStore.alignmentVisible
             var transformed = false
             var totalMovement = 0.0
             var lastSinglePosition = down.position
@@ -45,8 +47,13 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
 
                 if (!toolActionStarted) {
                     when (gestureMode) {
-                        TabletopMode.TOKENS,
-                        TabletopMode.MAPS -> Unit
+                        TabletopMode.TOKENS -> Unit
+
+                        TabletopMode.MAPS -> {
+                            if (alignmentGesture) {
+                                TabletopMapStore.beginMove()
+                            }
+                        }
 
                         TabletopMode.TOOLS -> when (gestureTool) {
                             TabletopTool.MEASURE -> state.beginMeasurement(down.position)
@@ -58,8 +65,19 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
                 }
 
                 when (gestureMode) {
-                    TabletopMode.TOKENS,
-                    TabletopMode.MAPS -> state.panBy(delta)
+                    TabletopMode.TOKENS -> state.panBy(delta)
+
+                    TabletopMode.MAPS -> {
+                        if (alignmentGesture) {
+                            // Alignment anchor movement intentionally uses the entire
+                            // tabletop viewport rather than the map's visual bounds.
+                            // This keeps precise crosshair placement available even
+                            // when a highly zoomed map is larger than the viewport.
+                            TabletopMapStore.moveByScreenDelta(state, delta)
+                        } else {
+                            state.panBy(delta)
+                        }
+                    }
 
                     TabletopMode.TOOLS -> when (gestureTool) {
                         TabletopTool.PAN -> state.panBy(delta)
@@ -79,7 +97,11 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
                     }
 
                     TabletopMode.MAPS -> {
-                        if (totalMovement < viewConfiguration.touchSlop) {
+                        if (alignmentGesture) {
+                            if (toolActionStarted && totalMovement >= viewConfiguration.touchSlop) {
+                                TabletopMapStore.finishMove(state)
+                            }
+                        } else if (totalMovement < viewConfiguration.touchSlop) {
                             TabletopMapStore.clearSelection()
                         }
                     }
