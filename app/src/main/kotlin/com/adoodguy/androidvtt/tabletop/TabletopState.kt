@@ -255,13 +255,24 @@ class TabletopState {
             TokenResizeAxis.WIDTH -> 2.0 * abs(localX) / pixelsPerCell
             TokenResizeAxis.HEIGHT -> 2.0 * abs(localY) / pixelsPerCell
         }
-        val snappedCells = snapToIncrement(rawCells, TOKEN_SCALE_INCREMENT_CELLS)
-            .coerceIn(TOKEN_HANDLE_MINIMUM_CELLS, TOKEN_MAXIMUM_CELLS)
+        val constrainedCells = rawCells.coerceIn(
+            TOKEN_HANDLE_MINIMUM_CELLS,
+            TOKEN_MAXIMUM_CELLS,
+        )
+        val adjustedCells = if (snapEnabled) {
+            magneticSnapToIncrement(
+                value = constrainedCells,
+                increment = TOKEN_SCALE_INCREMENT_CELLS,
+                threshold = TOKEN_SCALE_MAGNETIC_THRESHOLD_CELLS,
+            )
+        } else {
+            constrainedCells
+        }
 
         updateToken(tokenId) {
             when (axis) {
-                TokenResizeAxis.WIDTH -> it.copy(widthCells = snappedCells)
-                TokenResizeAxis.HEIGHT -> it.copy(heightCells = snappedCells)
+                TokenResizeAxis.WIDTH -> it.copy(widthCells = adjustedCells)
+                TokenResizeAxis.HEIGHT -> it.copy(heightCells = adjustedCells)
             }
         }
     }
@@ -286,12 +297,18 @@ class TabletopState {
         val rawRotation = normalizeDegrees(
             pointerDegrees - token.orientationMarkerBaseDegrees,
         )
-        val snappedRotation = snapToIncrement(
-            rawRotation,
-            TOKEN_ROTATION_INCREMENT_DEGREES,
-        )
+        val adjustedRotation = if (snapEnabled) {
+            magneticSnapToIncrement(
+                value = rawRotation,
+                increment = TOKEN_ROTATION_INCREMENT_DEGREES,
+                threshold = TOKEN_ROTATION_MAGNETIC_THRESHOLD_DEGREES,
+            )
+        } else {
+            rawRotation
+        }
+
         updateToken(tokenId) {
-            it.copy(rotationDegrees = normalizeDegrees(snappedRotation))
+            it.copy(rotationDegrees = normalizeDegrees(adjustedRotation))
         }
     }
 
@@ -442,12 +459,23 @@ class TabletopState {
         return if (normalized < 0.0) normalized + 360.0 else normalized
     }
 
+    private fun magneticSnapToIncrement(
+        value: Double,
+        increment: Double,
+        threshold: Double,
+    ): Double {
+        val snapTarget = snapToIncrement(value, increment)
+        return if (abs(value - snapTarget) <= threshold) snapTarget else value
+    }
+
     private fun snapToIncrement(value: Double, increment: Double): Double =
         floor(value / increment + 0.5) * increment
 
     private companion object {
         const val TOKEN_ROTATION_INCREMENT_DEGREES = 15.0
+        const val TOKEN_ROTATION_MAGNETIC_THRESHOLD_DEGREES = 3.0
         const val TOKEN_SCALE_INCREMENT_CELLS = 0.5
+        const val TOKEN_SCALE_MAGNETIC_THRESHOLD_CELLS = 0.1
         const val TOKEN_HANDLE_MINIMUM_CELLS = 0.5
         const val TOKEN_MAXIMUM_CELLS = 100.0
     }
