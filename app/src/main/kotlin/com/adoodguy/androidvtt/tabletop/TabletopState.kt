@@ -181,31 +181,37 @@ class TabletopState {
     }
 
     fun beginTokenMove(tokenId: Long) {
-        if (tokenById(tokenId) == null) return
+        val token = tokenById(tokenId) ?: return
+        if (token.movementLocked) return
         selectedTokenId = tokenId
         tokenMenuVisible = false
         activeTokenManipulation = null
     }
 
     fun moveTokenByScreenDelta(tokenId: Long, delta: Offset) {
-        updateToken(tokenId) { token ->
-            token.copy(
+        val token = tokenById(tokenId) ?: return
+        if (token.movementLocked) return
+        updateToken(tokenId) {
+            it.copy(
                 position = WorldPoint(
-                    x = token.position.x + delta.x / pixelsPerWorldUnit,
-                    y = token.position.y + delta.y / pixelsPerWorldUnit,
+                    x = it.position.x + delta.x / pixelsPerWorldUnit,
+                    y = it.position.y + delta.y / pixelsPerWorldUnit,
                 ),
             )
         }
     }
 
     fun finishTokenMove(tokenId: Long) {
-        updateToken(tokenId) { token ->
-            token.copy(position = snapWorldPoint(token.position))
+        val token = tokenById(tokenId) ?: return
+        if (token.movementLocked) return
+        updateToken(tokenId) {
+            it.copy(position = snapWorldPoint(it.position))
         }
     }
 
     fun beginTokenResize(tokenId: Long) {
-        if (tokenById(tokenId) == null) return
+        val token = tokenById(tokenId) ?: return
+        if (token.scaleLocked) return
         selectedTokenId = tokenId
         tokenMenuVisible = false
         activeTokenManipulation = ActiveTokenManipulation(
@@ -215,7 +221,8 @@ class TabletopState {
     }
 
     fun beginTokenRotation(tokenId: Long) {
-        if (tokenById(tokenId) == null) return
+        val token = tokenById(tokenId) ?: return
+        if (token.rotationLocked) return
         selectedTokenId = tokenId
         tokenMenuVisible = false
         activeTokenManipulation = ActiveTokenManipulation(
@@ -236,6 +243,7 @@ class TabletopState {
         screenPoint: Offset,
     ) {
         val token = tokenById(tokenId) ?: return
+        if (token.scaleLocked) return
         selectedTokenId = tokenId
         tokenMenuVisible = false
         activeTokenManipulation = ActiveTokenManipulation(
@@ -279,6 +287,7 @@ class TabletopState {
 
     fun rotateTokenFromScreenPoint(tokenId: Long, screenPoint: Offset) {
         val token = tokenById(tokenId) ?: return
+        if (token.rotationLocked) return
         selectedTokenId = tokenId
         tokenMenuVisible = false
         activeTokenManipulation = ActiveTokenManipulation(
@@ -317,6 +326,24 @@ class TabletopState {
     fun renameSelectedToken(name: String) {
         val tokenId = selectedTokenId ?: return
         updateToken(tokenId) { it.copy(name = name.take(40)) }
+    }
+
+    fun toggleSelectedTokenMovementLock() {
+        val tokenId = selectedTokenId ?: return
+        updateToken(tokenId) { it.copy(movementLocked = !it.movementLocked) }
+        activeTokenManipulation = null
+    }
+
+    fun toggleSelectedTokenScaleLock() {
+        val tokenId = selectedTokenId ?: return
+        updateToken(tokenId) { it.copy(scaleLocked = !it.scaleLocked) }
+        activeTokenManipulation = null
+    }
+
+    fun toggleSelectedTokenRotationLock() {
+        val tokenId = selectedTokenId ?: return
+        updateToken(tokenId) { it.copy(rotationLocked = !it.rotationLocked) }
+        activeTokenManipulation = null
     }
 
     fun selectSelectedTokenSizePreset(preset: TokenSizePreset) {
