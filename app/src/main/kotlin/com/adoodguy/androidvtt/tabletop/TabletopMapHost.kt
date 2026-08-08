@@ -22,7 +22,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -36,7 +35,7 @@ import androidx.compose.ui.unit.dp
 fun TabletopMapHost(content: @Composable () -> Unit) {
     val context = LocalContext.current
     val pickerRequest = TabletopMapStore.imagePickerRequest
-    var lastHandledPickerRequest by rememberSaveable { mutableIntStateOf(0) }
+    var lastHandledPickerRequest by rememberSaveable { mutableStateOf(0) }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -95,7 +94,7 @@ private fun BoxScope.MapSettingsPanel() {
 
     Card(
         modifier = Modifier
-            .align(Alignment.TopEnd)
+            .align(Alignment.CenterEnd)
             .padding(12.dp)
             .widthIn(min = 260.dp, max = 330.dp)
             .heightIn(max = 560.dp),
