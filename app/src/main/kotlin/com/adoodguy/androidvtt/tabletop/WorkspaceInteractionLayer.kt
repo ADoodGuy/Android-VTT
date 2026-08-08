@@ -5,7 +5,6 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -56,8 +55,6 @@ fun BoxScope.WorkspaceInteractionLayer(state: TabletopState) {
 
 @Composable
 private fun BoxScope.MapInteractionLayer(state: TabletopState) {
-    // This full-screen layer owns background pan/zoom while Maps mode is active
-    // and prevents token pointer handlers underneath it from receiving touches.
     Box(
         modifier = Modifier
             .matchParentSize()
