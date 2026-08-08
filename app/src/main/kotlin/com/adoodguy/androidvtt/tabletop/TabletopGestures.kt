@@ -16,22 +16,28 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
-fun Modifier.tabletopGestures(state: TabletopState): Modifier =
-    pointerInput(
+fun Modifier.tabletopGestures(state: TabletopState): Modifier {
+    val measurementActionOpen =
+        WorkspaceModeStore.mode == TabletopMode.TOOLS &&
+            state.tool == TabletopTool.MEASURE &&
+            state.selectedMeasurementMarkerIndex != null
+
+    // The measurement marker action is a modal interaction. Removing the
+    // tabletop pointer-input modifier entirely keeps the full-screen Tools
+    // layer out of the hit-test path so its buttons receive a normal click
+    // rather than competing with a measurement-placement gesture underneath.
+    if (measurementActionOpen) return this
+
+    return pointerInput(
         WorkspaceModeStore.mode,
         state.tool,
         state.drawingMode,
-        state.selectedMeasurementMarkerIndex,
         TabletopMapStore.alignmentVisible,
     ) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = true, pass = PointerEventPass.Main)
             val gestureMode = WorkspaceModeStore.mode
             val gestureTool = state.tool
-            val measurementActionOpenAtGestureStart =
-                gestureMode == TabletopMode.TOOLS &&
-                    gestureTool == TabletopTool.MEASURE &&
-                    state.selectedMeasurementMarkerIndex != null
             val alignmentGesture =
                 gestureMode == TabletopMode.MAPS && TabletopMapStore.alignmentVisible
             val eraserRadiusPx = 18.dp.toPx()
@@ -129,10 +135,7 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
                     TabletopMode.TOOLS -> when (gestureTool) {
                         TabletopTool.PAN -> Unit
                         TabletopTool.MEASURE -> {
-                            if (
-                                !measurementActionOpenAtGestureStart &&
-                                totalMovement < viewConfiguration.touchSlop
-                            ) {
+                            if (totalMovement < viewConfiguration.touchSlop) {
                                 state.handleMeasurementTap(down.position, markerHitRadiusPx)
                             }
                         }
@@ -153,6 +156,7 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
             }
         }
     }
+}
 
 private fun screenPointIsInsideMap(state: TabletopState, screenPoint: Offset): Boolean {
     val configuration = TabletopMapStore.configuration
