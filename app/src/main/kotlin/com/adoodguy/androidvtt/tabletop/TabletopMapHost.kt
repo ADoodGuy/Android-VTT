@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -69,6 +70,10 @@ fun TabletopMapHost(content: @Composable () -> Unit) {
         if (TabletopMapStore.settingsVisible) {
             MapSettingsPanel()
         }
+
+        if (TabletopMapStore.alignmentVisible) {
+            MapAlignmentAssistantPanel()
+        }
     }
 }
 
@@ -113,6 +118,10 @@ private fun BoxScope.MapSettingsPanel() {
 
             Button(onClick = TabletopMapStore::requestImagePicker) {
                 Text("Replace image")
+            }
+
+            Button(onClick = TabletopMapStore::openAlignmentAssistant) {
+                Text("Alignment assistant")
             }
 
             OutlinedTextField(
@@ -233,6 +242,51 @@ private fun BoxScope.MapSettingsPanel() {
 
             Button(onClick = TabletopMapStore::closeSettings) {
                 Text("Close")
+            }
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.MapAlignmentAssistantPanel() {
+    Card(
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .padding(12.dp)
+            .widthIn(min = 280.dp, max = 520.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Map alignment assistant", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "1. Drag across the map to place the yellow crosshair on a visible map-grid intersection. " +
+                    "When you release, that point is moved onto the nearest app grid anchor.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                "2. Use the orange ruler and highlighted example grid as a reference. Drag any map scale " +
+                    "handle until several printed grid lines match the guide. Scaling stays proportional and " +
+                    "keeps the crosshair fixed.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                "3. Rotate if needed, then choose Done. Future snapped map movement uses this crosshair " +
+                    "instead of the image center, so the alignment is preserved.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = TabletopMapStore::resetSnapAnchorToCenter) {
+                    Text("Crosshair to center")
+                }
+                Button(onClick = TabletopMapStore::finishAlignment) {
+                    Text("Done")
+                }
+                Button(onClick = TabletopMapStore::cancelAlignment) {
+                    Text("Cancel")
+                }
             }
         }
     }
