@@ -75,6 +75,8 @@ object TabletopMapStore {
     private const val KEY_ROTATION = "rotation_degrees"
 
     private var appContext: Context? = null
+    private var resizeBaseWidthCells = DEFAULT_MAP_WIDTH_CELLS
+    private var resizeBaseHeightCells = DEFAULT_MAP_WIDTH_CELLS
 
     var configuration by mutableStateOf(TabletopMapConfiguration())
         private set
@@ -241,6 +243,8 @@ object TabletopMapStore {
         if (!configuration.hasImage) return
         selected = true
         settingsVisible = false
+        resizeBaseWidthCells = configuration.widthCells
+        resizeBaseHeightCells = configuration.heightCells
         activeManipulation = MapManipulationKind.SCALE
     }
 
@@ -258,17 +262,32 @@ object TabletopMapStore {
         val localY = -deltaX * sin(radians) + deltaY * cos(radians)
         val pixelsPerCell = state.pixelsPerWorldUnit * state.cellSizeWorldUnits
 
-        val rawCells = when (axis) {
+        val rawAxisCells = when (axis) {
             MapResizeAxis.WIDTH -> 2.0 * abs(localX) / pixelsPerCell
             MapResizeAxis.HEIGHT -> 2.0 * abs(localY) / pixelsPerCell
         }
-        val adjusted = magneticScale(rawCells, state.snapEnabled)
-            .coerceIn(MAP_HANDLE_MINIMUM_CELLS, MAX_MAP_DIMENSION_CELLS)
-
-        configuration = when (axis) {
-            MapResizeAxis.WIDTH -> configuration.copy(widthCells = adjusted)
-            MapResizeAxis.HEIGHT -> configuration.copy(heightCells = adjusted)
+        val adjustedAxisCells = magneticScale(rawAxisCells, state.snapEnabled)
+        val baseAxisCells = when (axis) {
+            MapResizeAxis.WIDTH -> resizeBaseWidthCells
+            MapResizeAxis.HEIGHT -> resizeBaseHeightCells
         }
+        if (baseAxisCells <= 0.0 || !baseAxisCells.isFinite()) return
+
+        val minimumScaleFactor = maxOf(
+            MAP_HANDLE_MINIMUM_CELLS / resizeBaseWidthCells,
+            MAP_HANDLE_MINIMUM_CELLS / resizeBaseHeightCells,
+        )
+        val maximumScaleFactor = minOf(
+            MAX_MAP_DIMENSION_CELLS / resizeBaseWidthCells,
+            MAX_MAP_DIMENSION_CELLS / resizeBaseHeightCells,
+        )
+        val scaleFactor = (adjustedAxisCells / baseAxisCells)
+            .coerceIn(minimumScaleFactor, maximumScaleFactor)
+
+        configuration = configuration.copy(
+            widthCells = resizeBaseWidthCells * scaleFactor,
+            heightCells = resizeBaseHeightCells * scaleFactor,
+        )
         activeManipulation = MapManipulationKind.SCALE
     }
 
