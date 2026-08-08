@@ -80,6 +80,10 @@ class TabletopState {
     val hexGrid: HexGridGeometry
         get() = HexGridGeometry(cellSizeWorldUnits, hexOrientation)
 
+    init {
+        TabletopSceneStore.attachAndRestore(this)
+    }
+
     val transform: ViewportTransform
         get() = ViewportTransform(
             cameraCenter = cameraCenter,
@@ -457,6 +461,38 @@ class TabletopState {
     fun clearDrawings() {
         strokes.clear()
         activeStroke = null
+    }
+
+    internal fun createPersistentSnapshot(): TabletopSceneSnapshot =
+        TabletopSceneSnapshot(
+            gridKind = gridKind,
+            hexOrientation = hexOrientation,
+            snapEnabled = snapEnabled,
+            cameraCenter = cameraCenter,
+            pixelsPerWorldUnit = pixelsPerWorldUnit,
+            displayedUnitsPerCell = displayedUnitsPerCell,
+            tokens = tokens.toList(),
+            measurement = measurement,
+            strokes = strokes.toList(),
+        )
+
+    internal fun restorePersistentSnapshot(snapshot: TabletopSceneSnapshot) {
+        gridKind = snapshot.gridKind
+        hexOrientation = snapshot.hexOrientation
+        snapEnabled = snapshot.snapEnabled
+        cameraCenter = snapshot.cameraCenter
+        pixelsPerWorldUnit = snapshot.pixelsPerWorldUnit.coerceIn(16.0, 320.0)
+        displayedUnitsPerCell = snapshot.displayedUnitsPerCell
+
+        tokens.clear()
+        tokens.addAll(snapshot.tokens)
+        nextTokenId = (snapshot.tokens.maxOfOrNull { it.id } ?: 0L) + 1L
+
+        measurement = snapshot.measurement
+        strokes.clear()
+        strokes.addAll(snapshot.strokes)
+        activeStroke = null
+        clearTokenSelection()
     }
 
     private fun tokenById(tokenId: Long): TabletopToken? =
