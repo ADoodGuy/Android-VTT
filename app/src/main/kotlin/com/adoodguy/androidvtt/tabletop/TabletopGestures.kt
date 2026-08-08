@@ -72,8 +72,7 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
                             TabletopTool.DRAW -> state.beginDrawing(down.position, eraserRadiusPx)
                             TabletopTool.PAN,
                             TabletopTool.MEASURE,
-                            TabletopTool.NOTES,
-                            -> Unit
+                            TabletopTool.NOTES -> Unit
                         }
                     }
                     toolActionStarted = true
@@ -94,8 +93,7 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
                         TabletopTool.PAN -> state.panBy(delta)
                         TabletopTool.DRAW -> state.continueDrawing(change.position, eraserRadiusPx)
                         TabletopTool.MEASURE,
-                        TabletopTool.NOTES,
-                        -> Unit
+                        TabletopTool.NOTES -> Unit
                     }
                 }
                 change.consume()
