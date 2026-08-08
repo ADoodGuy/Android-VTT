@@ -61,17 +61,11 @@ fun TabletopCanvas(
         }
 
         state.tokens.forEach { token ->
-            TokenView(
-                state = state,
-                token = token,
-            )
+            TokenView(state = state, token = token)
         }
 
         state.selectedToken?.let { token ->
-            SelectedTokenControls(
-                state = state,
-                token = token,
-            )
+            SelectedTokenControls(state = state, token = token)
         }
     }
 }
@@ -84,14 +78,10 @@ private fun TokenView(
     val density = LocalDensity.current
     val center = state.worldToScreen(token.position)
     val widthPx = (
-        token.widthCells *
-            state.cellSizeWorldUnits *
-            state.pixelsPerWorldUnit
+        token.widthCells * state.cellSizeWorldUnits * state.pixelsPerWorldUnit
         ).toFloat()
     val heightPx = (
-        token.heightCells *
-            state.cellSizeWorldUnits *
-            state.pixelsPerWorldUnit
+        token.heightCells * state.cellSizeWorldUnits * state.pixelsPerWorldUnit
         ).toFloat()
 
     val minimumVisualDimensionPx = with(density) { 20.dp.toPx() }
@@ -102,14 +92,10 @@ private fun TokenView(
     val radians = Math.toRadians(token.rotationDegrees)
     val absoluteCosine = abs(cos(radians)).toFloat()
     val absoluteSine = abs(sin(radians)).toFloat()
-    val rotatedWidthPx =
-        renderedWidthPx * absoluteCosine + renderedHeightPx * absoluteSine
-    val rotatedHeightPx =
-        renderedWidthPx * absoluteSine + renderedHeightPx * absoluteCosine
+    val rotatedWidthPx = renderedWidthPx * absoluteCosine + renderedHeightPx * absoluteSine
+    val rotatedHeightPx = renderedWidthPx * absoluteSine + renderedHeightPx * absoluteCosine
     val containerWidthPx = maxOf(rotatedWidthPx, minimumTouchDimensionPx)
     val containerHeightPx = maxOf(rotatedHeightPx, minimumTouchDimensionPx)
-    val containerWidthDp = with(density) { containerWidthPx.toDp() }
-    val containerHeightDp = with(density) { containerHeightPx.toDp() }
     val selected = state.isTokenSelected(token.id)
 
     Box(
@@ -119,7 +105,10 @@ private fun TokenView(
                 x = center.x - containerWidthPx / 2f,
                 y = center.y - containerHeightPx / 2f,
             )
-            .size(containerWidthDp, containerHeightDp)
+            .size(
+                with(density) { containerWidthPx.toDp() },
+                with(density) { containerHeightPx.toDp() },
+            )
             .pointerInput(token.id) {
                 detectTapGestures(
                     onTap = { state.toggleTokenSelection(token.id) },
@@ -166,61 +155,48 @@ private fun BoxScope.SelectedTokenControls(
     val center = state.worldToScreen(token.position)
     val minimumVisualDimensionPx = with(density) { 20.dp.toPx() }
     val renderedWidthPx = maxOf(
-        (
-            token.widthCells *
-                state.cellSizeWorldUnits *
-                state.pixelsPerWorldUnit
-            ).toFloat(),
+        (token.widthCells * state.cellSizeWorldUnits * state.pixelsPerWorldUnit).toFloat(),
         minimumVisualDimensionPx,
     )
     val renderedHeightPx = maxOf(
-        (
-            token.heightCells *
-                state.cellSizeWorldUnits *
-                state.pixelsPerWorldUnit
-            ).toFloat(),
+        (token.heightCells * state.cellSizeWorldUnits * state.pixelsPerWorldUnit).toFloat(),
         minimumVisualDimensionPx,
     )
 
     val topPoint = pointAtClockwiseDegrees(
-        center = center,
-        degrees = token.rotationDegrees,
-        distance = renderedHeightPx / 2f,
+        center,
+        token.rotationDegrees,
+        renderedHeightPx / 2f,
     )
     val rightPoint = pointAtClockwiseDegrees(
-        center = center,
-        degrees = token.rotationDegrees + 90.0,
-        distance = renderedWidthPx / 2f,
+        center,
+        token.rotationDegrees + 90.0,
+        renderedWidthPx / 2f,
     )
     val bottomPoint = pointAtClockwiseDegrees(
-        center = center,
-        degrees = token.rotationDegrees + 180.0,
-        distance = renderedHeightPx / 2f,
+        center,
+        token.rotationDegrees + 180.0,
+        renderedHeightPx / 2f,
     )
     val leftPoint = pointAtClockwiseDegrees(
-        center = center,
-        degrees = token.rotationDegrees + 270.0,
-        distance = renderedWidthPx / 2f,
+        center,
+        token.rotationDegrees + 270.0,
+        renderedWidthPx / 2f,
     )
 
     val markerBaseDegrees = token.orientationMarkerBaseDegrees
     val markerEdgeRadius = orientationAxisRadius(
-        renderedWidthPx = renderedWidthPx,
-        renderedHeightPx = renderedHeightPx,
-        baseDegrees = markerBaseDegrees,
+        renderedWidthPx,
+        renderedHeightPx,
+        markerBaseDegrees,
     )
     val markerRadius = (markerEdgeRadius - with(density) { 3.dp.toPx() }).coerceAtLeast(0f)
     val markerDegrees = token.rotationDegrees + markerBaseDegrees
-    val markerEndpoint = pointAtClockwiseDegrees(
-        center = center,
-        degrees = markerDegrees,
-        distance = markerRadius,
-    )
-    val rotationHandleGapPx = with(density) { 28.dp.toPx() }
+    val markerEndpoint = pointAtClockwiseDegrees(center, markerDegrees, markerRadius)
     val rotationHandlePoint = pointAtClockwiseDegrees(
-        center = center,
-        degrees = markerDegrees,
-        distance = markerRadius + rotationHandleGapPx,
+        center,
+        markerDegrees,
+        markerRadius + with(density) { 28.dp.toPx() },
     )
 
     if (!token.rotationLocked) {
@@ -233,7 +209,7 @@ private fun BoxScope.SelectedTokenControls(
                 color = Color(0xCC20343F),
                 start = markerEndpoint,
                 end = rotationHandlePoint,
-                strokeWidth = 2f * density,
+                strokeWidth = 2.dp.toPx(),
             )
         }
     }
@@ -245,11 +221,7 @@ private fun BoxScope.SelectedTokenControls(
             style = TokenControlHandleStyle.SCALE,
             onDragStart = { state.beginTokenResize(token.id) },
             onDragTo = {
-                state.resizeTokenFromScreenPoint(
-                    tokenId = token.id,
-                    axis = TokenResizeAxis.HEIGHT,
-                    screenPoint = it,
-                )
+                state.resizeTokenFromScreenPoint(token.id, TokenResizeAxis.HEIGHT, it)
             },
             onDragEnd = { state.finishTokenManipulation(token.id) },
             onDragCancel = { state.finishTokenManipulation(token.id) },
@@ -260,11 +232,7 @@ private fun BoxScope.SelectedTokenControls(
             style = TokenControlHandleStyle.SCALE,
             onDragStart = { state.beginTokenResize(token.id) },
             onDragTo = {
-                state.resizeTokenFromScreenPoint(
-                    tokenId = token.id,
-                    axis = TokenResizeAxis.WIDTH,
-                    screenPoint = it,
-                )
+                state.resizeTokenFromScreenPoint(token.id, TokenResizeAxis.WIDTH, it)
             },
             onDragEnd = { state.finishTokenManipulation(token.id) },
             onDragCancel = { state.finishTokenManipulation(token.id) },
@@ -275,11 +243,7 @@ private fun BoxScope.SelectedTokenControls(
             style = TokenControlHandleStyle.SCALE,
             onDragStart = { state.beginTokenResize(token.id) },
             onDragTo = {
-                state.resizeTokenFromScreenPoint(
-                    tokenId = token.id,
-                    axis = TokenResizeAxis.HEIGHT,
-                    screenPoint = it,
-                )
+                state.resizeTokenFromScreenPoint(token.id, TokenResizeAxis.HEIGHT, it)
             },
             onDragEnd = { state.finishTokenManipulation(token.id) },
             onDragCancel = { state.finishTokenManipulation(token.id) },
@@ -290,11 +254,7 @@ private fun BoxScope.SelectedTokenControls(
             style = TokenControlHandleStyle.SCALE,
             onDragStart = { state.beginTokenResize(token.id) },
             onDragTo = {
-                state.resizeTokenFromScreenPoint(
-                    tokenId = token.id,
-                    axis = TokenResizeAxis.WIDTH,
-                    screenPoint = it,
-                )
+                state.resizeTokenFromScreenPoint(token.id, TokenResizeAxis.WIDTH, it)
             },
             onDragEnd = { state.finishTokenManipulation(token.id) },
             onDragCancel = { state.finishTokenManipulation(token.id) },
@@ -307,12 +267,7 @@ private fun BoxScope.SelectedTokenControls(
             controlKey = "${token.id}-rotation",
             style = TokenControlHandleStyle.ROTATE,
             onDragStart = { state.beginTokenRotation(token.id) },
-            onDragTo = {
-                state.rotateTokenFromScreenPoint(
-                    tokenId = token.id,
-                    screenPoint = it,
-                )
-            },
+            onDragTo = { state.rotateTokenFromScreenPoint(token.id, it) },
             onDragEnd = { state.finishTokenManipulation(token.id) },
             onDragCancel = { state.finishTokenManipulation(token.id) },
         )
@@ -421,30 +376,22 @@ private fun BoxScope.TokenControlHandle(
                         visualCenter.x - visualSize / 2f,
                         visualCenter.y - visualSize / 2f,
                     )
-                    drawRect(
-                        color = Color.White,
-                        topLeft = topLeft,
-                        size = Size(visualSize, visualSize),
-                    )
+                    drawRect(Color.White, topLeft = topLeft, size = Size(visualSize, visualSize))
                     drawRect(
                         color = Color(0xFFFF9800),
                         topLeft = topLeft,
                         size = Size(visualSize, visualSize),
-                        style = Stroke(width = 2f * density),
+                        style = Stroke(width = 2.dp.toPx()),
                     )
                 }
 
                 TokenControlHandleStyle.ROTATE -> {
-                    drawCircle(
-                        color = Color(0xFF6A4C93),
-                        radius = visualSize / 2f,
-                        center = visualCenter,
-                    )
+                    drawCircle(Color(0xFF6A4C93), radius = visualSize / 2f, center = visualCenter)
                     drawCircle(
                         color = Color.White,
                         radius = visualSize / 2f,
                         center = visualCenter,
-                        style = Stroke(width = 2f * density),
+                        style = Stroke(width = 2.dp.toPx()),
                     )
                 }
             }
@@ -465,16 +412,13 @@ private fun manipulationText(
         TokenManipulationKind.SCALE ->
             "Size ${formatManipulationNumber(token.widthCells)} × " +
                 "${formatManipulationNumber(token.heightCells)} cells"
-
         TokenManipulationKind.ROTATION ->
             "Rotation ${token.rotationDegrees.roundToInt()}°"
     }
 
 private fun formatManipulationNumber(value: Double): String {
     val roundedInteger = value.roundToInt()
-    if (abs(value - roundedInteger.toDouble()) < 0.000_001) {
-        return roundedInteger.toString()
-    }
+    if (abs(value - roundedInteger.toDouble()) < 0.000_001) return roundedInteger.toString()
     val roundedTenth = (value * 10.0).roundToInt() / 10.0
     return roundedTenth.toString().removeSuffix(".0")
 }
@@ -498,10 +442,7 @@ private fun DrawScope.drawToken(
     val outlineColor = if (selected) Color(0xFFFFB300) else Color(0xFF20343F)
     val outlineWidth = if (selected) 6f else 3f
 
-    rotate(
-        degrees = token.rotationDegrees.toFloat(),
-        pivot = tokenCenter,
-    ) {
+    rotate(degrees = token.rotationDegrees.toFloat(), pivot = tokenCenter) {
         drawOval(
             color = Color(token.colorArgb),
             topLeft = ovalTopLeft,
@@ -510,15 +451,15 @@ private fun DrawScope.drawToken(
 
         val markerRadius = (
             orientationAxisRadius(
-                renderedWidthPx = ovalSize.width,
-                renderedHeightPx = ovalSize.height,
-                baseDegrees = token.orientationMarkerBaseDegrees,
+                ovalSize.width,
+                ovalSize.height,
+                token.orientationMarkerBaseDegrees,
             ) - 3f * density
             ).coerceAtLeast(0f)
         val markerEnd = pointAtClockwiseDegrees(
-            center = tokenCenter,
-            degrees = token.orientationMarkerBaseDegrees,
-            distance = markerRadius,
+            tokenCenter,
+            token.orientationMarkerBaseDegrees,
+            markerRadius,
         )
         drawLine(
             color = Color(0xAA000000),
@@ -532,7 +473,6 @@ private fun DrawScope.drawToken(
             end = markerEnd,
             strokeWidth = 2f * density,
         )
-
         drawOval(
             color = outlineColor,
             topLeft = ovalTopLeft,
@@ -578,8 +518,7 @@ private fun Modifier.offsetInPixels(x: Float, y: Float): Modifier =
     )
 
 private fun DrawScope.drawGrid(state: TabletopState) {
-    val transform = state.transform
-    val visibleBounds = transform.visibleWorldRect()
+    val visibleBounds = state.transform.visibleWorldRect()
     val gridColor = Color(0x553E4A52)
     val axisColor = Color(0x884E6E81)
     val gridStroke = (1.15f * density).coerceAtLeast(1f)
@@ -602,7 +541,8 @@ private fun DrawScope.drawGrid(state: TabletopState) {
                 val path = Path()
                 corners.forEachIndexed { index, point ->
                     val screen = state.worldToScreen(point)
-                    if (index == 0) path.moveTo(screen.x, screen.y) else path.lineTo(screen.x, screen.y)
+                    if (index == 0) path.moveTo(screen.x, screen.y)
+                    else path.lineTo(screen.x, screen.y)
                 }
                 path.close()
                 drawPath(path, gridColor, style = Stroke(gridStroke))
@@ -625,46 +565,72 @@ private fun DrawScope.drawStroke(stroke: DrawingStroke, state: TabletopState) {
     val path = Path()
     stroke.points.forEachIndexed { index, point ->
         val screen = state.worldToScreen(point)
-        if (index == 0) path.moveTo(screen.x, screen.y) else path.lineTo(screen.x, screen.y)
+        if (index == 0) path.moveTo(screen.x, screen.y)
+        else path.lineTo(screen.x, screen.y)
     }
     drawPath(
         path = path,
-        color = Color(0xFF9C3D54),
+        color = Color(stroke.colorArgb),
         style = Stroke(
-            width = (stroke.widthWorldUnits * state.pixelsPerWorldUnit).toFloat().coerceAtLeast(1f),
+            width = (stroke.widthWorldUnits * state.pixelsPerWorldUnit)
+                .toFloat()
+                .coerceAtLeast(1f),
         ),
     )
 }
 
-private fun DrawScope.drawMeasurement(line: MeasurementLine, state: TabletopState) {
-    val start = state.worldToScreen(line.start)
-    val end = state.worldToScreen(line.end)
-    drawLine(
-        color = Color(0xFFD35400),
-        start = start,
-        end = end,
-        strokeWidth = 4f * density,
-    )
-    drawCircle(Color(0xFFD35400), radius = 5f * density, center = start)
-    drawCircle(Color(0xFFD35400), radius = 5f * density, center = end)
+private fun DrawScope.drawMeasurement(path: MeasurementPath, state: TabletopState) {
+    if (path.points.isEmpty()) return
+    val lineColor = Color(0xFFD35400)
+    val selectedColor = Color(0xFFFFB300)
+
+    path.points.zipWithNext().forEach { (startWorld, endWorld) ->
+        drawLine(
+            color = lineColor,
+            start = state.worldToScreen(startWorld),
+            end = state.worldToScreen(endWorld),
+            strokeWidth = 4f * density,
+        )
+    }
+
+    path.points.forEachIndexed { index, point ->
+        val selected = index == state.selectedMeasurementMarkerIndex
+        drawCircle(
+            color = if (selected) selectedColor else lineColor,
+            radius = if (selected) 8f * density else 6f * density,
+            center = state.worldToScreen(point),
+        )
+        if (selected) {
+            drawCircle(
+                color = Color.White,
+                radius = 4f * density,
+                center = state.worldToScreen(point),
+            )
+        }
+    }
 }
 
 fun measurementText(state: TabletopState): String? {
-    val line = state.measurement ?: return null
-    val result = when (state.gridKind) {
-        GridKind.SQUARE -> MeasurementEngine.measureSquare(
-            line.start,
-            line.end,
-            state.squareGrid,
-            state.unitScale,
-        )
+    val path = state.measurement ?: return null
+    if (path.points.isEmpty()) return null
+    if (path.points.size == 1) return "1 measurement marker"
 
-        GridKind.HEX -> MeasurementEngine.measureHex(
-            line.start,
-            line.end,
-            state.hexGrid,
-            state.unitScale,
-        )
+    val segments = path.points.zipWithNext().map { (start, end) ->
+        when (state.gridKind) {
+            GridKind.SQUARE -> MeasurementEngine.measureSquare(
+                start,
+                end,
+                state.squareGrid,
+                state.unitScale,
+            )
+            GridKind.HEX -> MeasurementEngine.measureHex(
+                start,
+                end,
+                state.hexGrid,
+                state.unitScale,
+            )
+        }.formatted()
     }
-    return result.formatted()
+    return "${segments.size} segment${if (segments.size == 1) "" else "s"}: " +
+        segments.joinToString(" + ")
 }
