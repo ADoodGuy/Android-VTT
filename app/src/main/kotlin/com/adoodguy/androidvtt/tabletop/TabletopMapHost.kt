@@ -1,9 +1,11 @@
 package com.adoodguy.androidvtt.tabletop
 
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,9 +20,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,53 +35,47 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun TabletopMapHost(content: @Composable () -> Unit) {
     val context = LocalContext.current
-    var panelVisible by remember { mutableStateOf(false) }
-    val configuration = TabletopMapStore.configuration
+    val pickerRequest = TabletopMapStore.imagePickerRequest
+    var lastHandledPickerRequest by rememberSaveable { mutableIntStateOf(0) }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            } catch (_: SecurityException) {
+                // TabletopMapStore also tolerates providers without persistable grants.
+            }
             TabletopMapStore.importImage(
                 uri = uri,
                 aspectRatio = readMapImageAspectRatio(context, uri),
             )
-            panelVisible = true
+        }
+    }
+
+    LaunchedEffect(pickerRequest) {
+        if (pickerRequest > lastHandledPickerRequest) {
+            lastHandledPickerRequest = pickerRequest
+            launcher.launch(arrayOf("image/*"))
         }
     }
 
     Box(Modifier.fillMaxSize()) {
         content()
 
-        Button(
-            onClick = { panelVisible = !panelVisible },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 12.dp, bottom = 72.dp),
-        ) {
-            Text(if (configuration.hasImage) "Map ✓" else "Map")
-        }
-
-        if (panelVisible) {
-            MapSettingsPanel(
-                configuration = configuration,
-                onChooseImage = { launcher.launch(arrayOf("image/*")) },
-                onClose = { panelVisible = false },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 12.dp, bottom = 126.dp),
-            )
+        if (TabletopMapStore.settingsVisible) {
+            MapSettingsPanel()
         }
     }
 }
 
 @Composable
-private fun MapSettingsPanel(
-    configuration: TabletopMapConfiguration,
-    onChooseImage: () -> Unit,
-    onClose: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+private fun BoxScope.MapSettingsPanel() {
+    val configuration = TabletopMapStore.configuration
     var widthText by remember(configuration.widthCells) {
         mutableStateOf(formatMapNumber(configuration.widthCells))
     }
@@ -89,12 +88,17 @@ private fun MapSettingsPanel(
     var centerYText by remember(configuration.centerY) {
         mutableStateOf(formatMapNumber(configuration.centerY))
     }
+    var rotationText by remember(configuration.rotationDegrees) {
+        mutableStateOf(formatMapNumber(configuration.rotationDegrees))
+    }
     var errorText by remember { mutableStateOf<String?>(null) }
 
     Card(
-        modifier = modifier
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .padding(12.dp)
             .widthIn(min = 260.dp, max = 330.dp)
-            .heightIn(max = 520.dp),
+            .heightIn(max = 560.dp),
     ) {
         Column(
             modifier = Modifier
@@ -104,16 +108,12 @@ private fun MapSettingsPanel(
         ) {
             Text("Map settings", style = MaterialTheme.typography.titleSmall)
             Text(
-                if (configuration.hasImage) {
-                    "Image selected. The grid, drawings, measurements, and tokens render above it."
-                } else {
-                    "Choose an image from this device to use as the tabletop background."
-                },
+                "The map remains beneath the grid, drawings, measurements, and tokens.",
                 style = MaterialTheme.typography.bodySmall,
             )
 
-            Button(onClick = onChooseImage) {
-                Text(if (configuration.hasImage) "Replace image" else "Choose image")
+            Button(onClick = TabletopMapStore::requestImagePicker) {
+                Text("Replace image")
             }
 
             OutlinedTextField(
@@ -156,6 +156,16 @@ private fun MapSettingsPanel(
                 label = { Text("Center Y (cells)") },
                 singleLine = true,
             )
+            OutlinedTextField(
+                value = rotationText,
+                onValueChange = {
+                    rotationText = it
+                    errorText = null
+                },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Rotation in degrees") },
+                singleLine = true,
+            )
 
             errorText?.let {
                 Text(
@@ -171,16 +181,24 @@ private fun MapSettingsPanel(
                     val height = heightText.toDoubleOrNull()
                     val centerX = centerXText.toDoubleOrNull()
                     val centerY = centerYText.toDoubleOrNull()
+                    val rotation = rotationText.toDoubleOrNull()
                     if (
                         width != null &&
                         height != null &&
                         centerX != null &&
                         centerY != null &&
-                        TabletopMapStore.updateGeometry(width, height, centerX, centerY)
+                        rotation != null &&
+                        TabletopMapStore.updateGeometry(
+                            widthCells = width,
+                            heightCells = height,
+                            centerX = centerX,
+                            centerY = centerY,
+                            rotationDegrees = rotation,
+                        )
                     ) {
                         errorText = null
                     } else {
-                        errorText = "Use positive width/height values and numeric X/Y coordinates."
+                        errorText = "Use positive width/height values and numeric position/rotation values."
                     }
                 },
             ) {
@@ -191,24 +209,30 @@ private fun MapSettingsPanel(
                 onClick = {
                     centerXText = "0"
                     centerYText = "0"
+                    rotationText = "0"
+                    TabletopMapStore.updateGeometry(
+                        widthCells = configuration.widthCells,
+                        heightCells = configuration.heightCells,
+                        centerX = 0.0,
+                        centerY = 0.0,
+                        rotationDegrees = 0.0,
+                    )
                     errorText = null
                 },
             ) {
-                Text("Set center fields to origin")
+                Text("Reset position and rotation")
             }
 
-            if (configuration.hasImage) {
-                Button(
-                    onClick = {
-                        TabletopMapStore.removeMap()
-                        errorText = null
-                    },
-                ) {
-                    Text("Remove map")
-                }
+            Button(
+                onClick = {
+                    TabletopMapStore.removeMap()
+                    errorText = null
+                },
+            ) {
+                Text("Remove map")
             }
 
-            Button(onClick = onClose) {
+            Button(onClick = TabletopMapStore::closeSettings) {
                 Text("Close")
             }
         }
