@@ -1,5 +1,6 @@
 package com.adoodguy.androidvtt.tabletop
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,11 +48,10 @@ fun TabletopScreen() {
     Scaffold(
         topBar = { PrototypeToolbar(state) },
         bottomBar = { BottomBar(state) },
-    ) { padding ->
+    ) { contentPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .onSizeChanged { state.viewportSize = it },
         ) {
             TabletopCanvas(
@@ -61,12 +61,17 @@ fun TabletopScreen() {
 
             WorkspaceInteractionLayer(state)
             TabletopNotesLayer(state)
+            MeasurementOverlay(state)
 
-            measurementText(state)?.let { measurement ->
+            measurementTotalText(state)?.let { measurement ->
                 Card(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(12.dp),
+                        .padding(
+                            start = 12.dp,
+                            end = 12.dp,
+                            bottom = contentPadding.calculateBottomPadding() + 12.dp,
+                        ),
                 ) {
                     Text(
                         text = measurement,
@@ -76,8 +81,14 @@ fun TabletopScreen() {
                 }
             }
 
-            MeasurementMarkerMenu(state)
-            TokenContextMenu(state)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(contentPadding),
+            ) {
+                MeasurementMarkerMenu(state)
+                TokenContextMenu(state)
+            }
         }
     }
 }
@@ -87,11 +98,13 @@ private fun PrototypeToolbar(state: TabletopState) {
     var clearMenuExpanded by remember { mutableStateOf(false) }
     val hasMeasurement = state.measurement != null
     val hasDrawings = state.strokes.isNotEmpty() || state.activeStroke != null
+    val hasNotes = state.notes.isNotEmpty()
     val mapConfiguration = TabletopMapStore.configuration
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.86f))
             .padding(vertical = 6.dp),
     ) {
         Row(
@@ -165,7 +178,7 @@ private fun PrototypeToolbar(state: TabletopState) {
                         )
                     }
 
-                    if (hasMeasurement || hasDrawings) {
+                    if (hasMeasurement || hasDrawings || hasNotes) {
                         Box {
                             Button(onClick = { clearMenuExpanded = true }) {
                                 Text("Clear")
@@ -188,6 +201,15 @@ private fun PrototypeToolbar(state: TabletopState) {
                                         text = { Text("Clear drawings") },
                                         onClick = {
                                             state.clearDrawings()
+                                            clearMenuExpanded = false
+                                        },
+                                    )
+                                }
+                                if (hasNotes) {
+                                    DropdownMenuItem(
+                                        text = { Text("Clear notes") },
+                                        onClick = {
+                                            state.notes.clear()
                                             clearMenuExpanded = false
                                         },
                                     )
@@ -308,6 +330,7 @@ private fun BottomBar(state: TabletopState) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.82f))
             .padding(horizontal = 12.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
