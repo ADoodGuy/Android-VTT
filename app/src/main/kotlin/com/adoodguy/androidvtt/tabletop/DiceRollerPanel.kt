@@ -211,56 +211,48 @@ private fun SingleEditor() {
     var presetName by remember { mutableStateOf("") }
 
     Text(
-        "Each dice set can carry its own modifier. Global modifiers are applied after all set subtotals.",
+        "Each dice set has a +/− contribution operator. A − set subtracts the rolled subtotal itself. Fixed numeric modifiers remain separate below.",
         style = MaterialTheme.typography.bodySmall,
     )
 
     Text("Dice sets", style = MaterialTheme.typography.titleSmall)
     DiceRollerStore.singleSets.forEachIndexed { index, set ->
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+            Row(
+                modifier = Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Set ${index + 1}", style = MaterialTheme.typography.labelLarge)
-                    OutlinedTextField(
-                        value = set.countText,
-                        onValueChange = { DiceRollerStore.updateSingleSetCount(index, it) },
-                        modifier = Modifier.width(86.dp),
-                        label = { Text("Dice") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    )
-                    OutlinedTextField(
-                        value = set.sidesText,
-                        onValueChange = { DiceRollerStore.updateSingleSetSides(index, it) },
-                        modifier = Modifier.width(86.dp),
-                        label = { Text("Sides") },
-                        prefix = { Text("d") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    )
-                    Text("Set modifier", style = MaterialTheme.typography.labelMedium)
-                    Button(onClick = { DiceRollerStore.toggleSingleSetModifierOperation(index) }) {
-                        Text(set.modifier.operation.symbol)
-                    }
-                    OutlinedTextField(
-                        value = set.modifier.valueText,
-                        onValueChange = { DiceRollerStore.updateSingleSetModifierValue(index, it) },
-                        modifier = Modifier.width(100.dp),
-                        label = { Text("Value") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    )
-                    if (DiceRollerStore.singleSets.size > 1) {
-                        TextButton(onClick = { DiceRollerStore.removeSingleSet(index) }) {
-                            Text("Remove")
-                        }
+                Text("Set ${index + 1}", style = MaterialTheme.typography.labelLarge)
+                Button(onClick = { DiceRollerStore.toggleSingleSetOperation(index) }) {
+                    Text(set.operation.symbol)
+                }
+                OutlinedTextField(
+                    value = set.countText,
+                    onValueChange = { DiceRollerStore.updateSingleSetCount(index, it) },
+                    modifier = Modifier.width(86.dp),
+                    label = { Text("Dice") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                OutlinedTextField(
+                    value = set.sidesText,
+                    onValueChange = { DiceRollerStore.updateSingleSetSides(index, it) },
+                    modifier = Modifier.width(86.dp),
+                    label = { Text("Sides") },
+                    prefix = { Text("d") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                Text(
+                    if (set.operation == DiceModifierOperation.ADD) "Add roll" else "Subtract roll",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                if (DiceRollerStore.singleSets.size > 1) {
+                    TextButton(onClick = { DiceRollerStore.removeSingleSet(index) }) {
+                        Text("Remove")
                     }
                 }
             }
@@ -272,7 +264,7 @@ private fun SingleEditor() {
     }
 
     HorizontalDivider()
-    Text("Global modifiers", style = MaterialTheme.typography.titleSmall)
+    Text("Fixed modifiers", style = MaterialTheme.typography.titleSmall)
 
     DiceRollerStore.singleModifiers.forEachIndexed { index, modifier ->
         Row(
@@ -415,15 +407,24 @@ private fun ClusterPresetMenu(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("${preset.name} • ${preset.count}d${preset.sides}", modifier = Modifier.widthIn(min = 150.dp))
-                    Button(onClick = { DiceRollerStore.quickRollClusterPreset(preset.id) }) { Text("Roll") }
-                    TextButton(onClick = { onEdit(preset.id, preset.name) }) { Text("Edit") }
+                    Text(
+                        "${preset.name} • ${preset.count}d${preset.sides}",
+                        modifier = Modifier.widthIn(min = 150.dp),
+                    )
+                    Button(onClick = { DiceRollerStore.quickRollClusterPreset(preset.id) }) {
+                        Text("Roll")
+                    }
+                    TextButton(onClick = { onEdit(preset.id, preset.name) }) {
+                        Text("Edit")
+                    }
                     TextButton(
                         onClick = {
                             DiceRollerStore.deleteClusterPreset(preset.id)
                             onDeleted(preset.id)
                         },
-                    ) { Text("Delete") }
+                    ) {
+                        Text("Delete")
+                    }
                 }
             }
         }
@@ -450,15 +451,24 @@ private fun SinglePresetMenu(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("${preset.name} • ${formatSinglePreset(preset)}", modifier = Modifier.widthIn(min = 190.dp))
-                    Button(onClick = { DiceRollerStore.quickRollSinglePreset(preset.id) }) { Text("Roll") }
-                    TextButton(onClick = { onEdit(preset.id, preset.name) }) { Text("Edit") }
+                    Text(
+                        "${preset.name} • ${formatSinglePreset(preset)}",
+                        modifier = Modifier.widthIn(min = 190.dp),
+                    )
+                    Button(onClick = { DiceRollerStore.quickRollSinglePreset(preset.id) }) {
+                        Text("Roll")
+                    }
+                    TextButton(onClick = { onEdit(preset.id, preset.name) }) {
+                        Text("Edit")
+                    }
                     TextButton(
                         onClick = {
                             DiceRollerStore.deleteSinglePreset(preset.id)
                             onDeleted(preset.id)
                         },
-                    ) { Text("Delete") }
+                    ) {
+                        Text("Delete")
+                    }
                 }
             }
         }
@@ -500,7 +510,7 @@ private fun BoxScope.DiceResultPopup() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .zIndex(109f)
+            .zIndex(104f)
             .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.24f))
             .clickable(onClick = DiceRollerStore::closeResult),
     )
@@ -508,16 +518,16 @@ private fun BoxScope.DiceResultPopup() {
     Card(
         modifier = Modifier
             .align(Alignment.Center)
-            .zIndex(110f)
+            .zIndex(105f)
             .padding(16.dp)
-            .widthIn(min = 280.dp, max = 520.dp)
+            .widthIn(min = 290.dp, max = 540.dp)
             .heightIn(max = 650.dp),
     ) {
         Column(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())
                 .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -579,7 +589,10 @@ private fun ClusterResultContent() {
                         )
                     }
                 }
-                Text("$count ${if (count == 1) "die" else "dice"}", modifier = Modifier.width(70.dp))
+                Text(
+                    "$count ${if (count == 1) "die" else "dice"}",
+                    modifier = Modifier.width(70.dp),
+                )
             }
         }
     }
@@ -626,7 +639,9 @@ private fun SingleResultContent() {
             .fillMaxWidth()
             .clickable {
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("Dice result", roll.kept.total.toString()))
+                clipboard.setPrimaryClip(
+                    ClipData.newPlainText("Dice result", roll.kept.total.toString()),
+                )
                 copied = true
             },
     ) {
@@ -665,19 +680,17 @@ private fun AttemptCard(title: String, attempt: SingleDiceAttempt, kept: Boolean
             attempt.sets.forEachIndexed { index, set ->
                 val visible = set.results.take(16).joinToString(", ")
                 val suffix = if (set.results.size > 16) ", …" else ""
-                val modifierText = if (set.modifier.value == 0) {
-                    ""
-                } else {
-                    " ${set.modifier.operation.symbol} ${set.modifier.value}"
-                }
+                val signedContribution = if (set.contribution >= 0) "+${set.contribution}" else set.contribution.toString()
                 Text(
-                    "Set ${index + 1}: ${set.count}d${set.sides} [$visible$suffix]$modifierText = ${set.subtotal}",
+                    "Set ${index + 1}: ${set.operation.symbol} ${set.count}d${set.sides} [$visible$suffix] = $signedContribution",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
             if (attempt.modifiers.isNotEmpty()) {
-                val global = attempt.modifiers.joinToString(" ") { "${it.operation.symbol} ${it.value}" }
-                Text("Global modifiers: $global", style = MaterialTheme.typography.bodySmall)
+                val fixed = attempt.modifiers.joinToString(" ") {
+                    "${it.operation.symbol} ${it.value}"
+                }
+                Text("Fixed modifiers: $fixed", style = MaterialTheme.typography.bodySmall)
             }
             Text("Total ${attempt.total}", style = MaterialTheme.typography.labelLarge)
         }
@@ -727,7 +740,10 @@ private fun BoxScope.DiceHistoryPopup() {
                         modifier = Modifier.padding(8.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        Text("${index + 1}. ${historyTitle(entry)}", style = MaterialTheme.typography.labelLarge)
+                        Text(
+                            "${index + 1}. ${historyTitle(entry)}",
+                            style = MaterialTheme.typography.labelLarge,
+                        )
                         Text(historyDetail(entry), style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -739,15 +755,15 @@ private fun BoxScope.DiceHistoryPopup() {
 private fun defaultClusterPresetName(): String =
     "${DiceRollerStore.clusterCountText}d${DiceRollerStore.clusterSidesText}"
 
-private fun defaultSinglePresetName(): String =
-    formatDraftExpression().take(40)
+private fun defaultSinglePresetName(): String = formatDraftExpression().take(40)
 
 private fun formatDraftExpression(): String = buildString {
     DiceRollerStore.singleSets.forEachIndexed { index, set ->
-        if (index > 0) append(" + ")
-        append("${set.countText.ifBlank { "?" }}d${set.sidesText.ifBlank { "?" }}")
-        val value = set.modifier.valueText.toIntOrNull() ?: 0
-        if (value != 0) append(" (${set.modifier.operation.symbol}$value)")
+        appendDiceSetTerm(
+            index = index,
+            operation = set.operation,
+            term = "${set.countText.ifBlank { "?" }}d${set.sidesText.ifBlank { "?" }}",
+        )
     }
     DiceRollerStore.singleModifiers.forEach { modifier ->
         append(" ${modifier.operation.symbol} ${modifier.valueText.ifBlank { "0" }}")
@@ -756,12 +772,23 @@ private fun formatDraftExpression(): String = buildString {
 
 private fun formatSinglePreset(preset: SingleDicePreset): String = buildString {
     preset.sets.forEachIndexed { index, set ->
-        if (index > 0) append(" + ")
-        append("${set.count}d${set.sides}")
-        if (set.modifier.value != 0) append(" (${set.modifier.operation.symbol}${set.modifier.value})")
+        appendDiceSetTerm(index, set.operation, "${set.count}d${set.sides}")
     }
     preset.modifiers.forEach { append(" ${it.operation.symbol} ${it.value}") }
     if (preset.keepMode != DiceKeepMode.NORMAL) append(" • ${preset.keepMode.label}")
+}
+
+private fun StringBuilder.appendDiceSetTerm(
+    index: Int,
+    operation: DiceModifierOperation,
+    term: String,
+) {
+    when {
+        index == 0 && operation == DiceModifierOperation.ADD -> append(term)
+        index == 0 -> append("− $term")
+        operation == DiceModifierOperation.ADD -> append(" + $term")
+        else -> append(" − $term")
+    }
 }
 
 private fun historyTitle(entry: DiceHistoryEntry): String = when (entry) {
@@ -781,10 +808,11 @@ private fun historyDetail(entry: DiceHistoryEntry): String = when (entry) {
 }
 
 private fun compactAttempt(attempt: SingleDiceAttempt): String {
-    val sets = attempt.sets.joinToString(" + ") { set ->
-        val mod = if (set.modifier.value == 0) "" else " ${set.modifier.operation.symbol}${set.modifier.value}"
-        "${set.count}d${set.sides}$mod=${set.subtotal}"
-    }
-    val globals = attempt.modifiers.joinToString(" ") { "${it.operation.symbol}${it.value}" }
-    return if (globals.isBlank()) sets else "$sets • $globals"
+    val sets = attempt.sets.mapIndexed { index, set ->
+        buildString {
+            appendDiceSetTerm(index, set.operation, "${set.count}d${set.sides}=${set.rolledSubtotal}")
+        }
+    }.joinToString("")
+    val fixed = attempt.modifiers.joinToString(" ") { "${it.operation.symbol}${it.value}" }
+    return if (fixed.isBlank()) sets else "$sets • $fixed"
 }
