@@ -24,8 +24,9 @@ Add **Dice** to Tools with an app-level dice panel and persistent app-wide histo
 - Rolls one pool with a common die size.
 - Supports d2 through d12.
 - Supports up to 500 dice in a pool.
-- Displays a result histogram as face/count buckets.
-- Tapping a result bucket offers reroll rules for:
+- Displays the complete face distribution as a horizontal bar graph with one row for every possible face, including zero-count faces.
+- The entire result row is a touch target; users do not need to hit the filled portion of the bar.
+- Tapping a result row offers reroll rules for:
   - exactly that result,
   - that result or lower,
   - that result or higher.
@@ -36,7 +37,9 @@ Add **Dice** to Tools with an app-level dice panel and persistent app-wide histo
 
 - Supports up to eight dice sets in one expression.
 - Each set supports 1–100 dice and die sizes d2 through d100, with a 500-die expression limit.
-- Supports one signed integer arithmetic modifier applied to the complete expression.
+- Supports up to eight ordered arithmetic modifier terms.
+- Each modifier is represented by two controls: an explicit **+ / −** operation button and a non-negative whole-number value field.
+- Modifier terms can be added and removed independently like dice sets.
 - Normal rolls evaluate the expression once.
 - Advantage and Disadvantage evaluate the complete expression twice and retain the higher or lower total respectively, while displaying both attempts.
 
@@ -54,10 +57,12 @@ A Single preset stores:
 
 - name,
 - all dice sets,
-- arithmetic modifier,
+- all ordered arithmetic modifier terms,
 - Normal / Advantage / Disadvantage selection.
 
-The preset menu supports:
+Preset selection uses an inline menu card rather than a popup dropdown. Every saved preset occupies one horizontally scrollable line containing its name/configuration and **Roll / Edit / Delete** controls.
+
+Preset behavior supports:
 
 - **Roll** without replacing the current editor controls,
 - **Edit**, which loads the preset into the controls,
@@ -87,6 +92,8 @@ Dice state uses its own versioned SharedPreferences JSON store. It is intentiona
 - current editor controls,
 - Cluster and Single presets,
 - the five-entry roll history.
+
+Schema v3 replaces the v1/v2 single signed modifier field with an ordered modifier list. Older saved editor state, Single presets, and Single history are migrated into equivalent one-term modifier lists rather than discarded.
 
 ## Deferred
 
