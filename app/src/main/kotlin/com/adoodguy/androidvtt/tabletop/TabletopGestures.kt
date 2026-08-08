@@ -36,6 +36,11 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
             var lastSinglePosition = down.position
             var toolActionStarted = false
 
+            if (gestureMode == TabletopMode.TOOLS && gestureTool == TabletopTool.DRAW) {
+                state.beginDrawing(down.position, eraserRadiusPx)
+                toolActionStarted = true
+            }
+
             while (true) {
                 val event = awaitPointerEvent(pass = PointerEventPass.Main)
                 val pressed = event.changes.filter { it.pressed }
@@ -68,12 +73,7 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
                             }
                         }
 
-                        TabletopMode.TOOLS -> when (gestureTool) {
-                            TabletopTool.DRAW -> state.beginDrawing(down.position, eraserRadiusPx)
-                            TabletopTool.PAN,
-                            TabletopTool.MEASURE,
-                            TabletopTool.NOTES -> Unit
-                        }
+                        TabletopMode.TOOLS -> Unit
                     }
                     toolActionStarted = true
                 }
