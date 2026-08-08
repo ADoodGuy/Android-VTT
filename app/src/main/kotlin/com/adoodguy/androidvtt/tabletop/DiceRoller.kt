@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlin.math.abs
 import kotlin.random.Random
 import org.json.JSONArray
 import org.json.JSONObject
@@ -26,6 +27,15 @@ enum class ClusterRerollRule(val label: String) {
     OR_HIGHER("this result or higher"),
 }
 
+enum class DiceModifierOperation(val symbol: String) {
+    ADD("+"),
+    SUBTRACT("−"),
+    ;
+
+    fun toggled(): DiceModifierOperation =
+        if (this == ADD) SUBTRACT else ADD
+}
+
 data class DiceSetDraft(
     val countText: String = "1",
     val sidesText: String = "20",
@@ -35,6 +45,19 @@ data class DiceSetSpec(
     val count: Int,
     val sides: Int,
 )
+
+data class DiceModifierDraft(
+    val operation: DiceModifierOperation = DiceModifierOperation.ADD,
+    val valueText: String = "0",
+)
+
+data class DiceModifierSpec(
+    val operation: DiceModifierOperation,
+    val value: Int,
+) {
+    val signedValue: Int
+        get() = if (operation == DiceModifierOperation.ADD) value else -value
+}
 
 data class DiceSetOutcome(
     val count: Int,
@@ -46,9 +69,10 @@ data class DiceSetOutcome(
 
 data class SingleDiceAttempt(
     val sets: List<DiceSetOutcome>,
-    val modifier: Int,
+    val modifiers: List<DiceModifierSpec>,
 ) {
-    val total: Int get() = sets.sumOf { it.subtotal } + modifier
+    val modifierTotal: Int get() = modifiers.sumOf { it.signedValue }
+    val total: Int get() = sets.sumOf { it.subtotal } + modifierTotal
 }
 
 data class ClusterDicePreset(
@@ -62,7 +86,7 @@ data class SingleDicePreset(
     val id: Long,
     val name: String,
     val sets: List<DiceSetSpec>,
-    val modifier: Int,
+    val modifiers: List<DiceModifierSpec>,
     val keepMode: DiceKeepMode,
 )
 
@@ -91,6 +115,11 @@ data class SingleDiceRoll(
         get() = if (keptAttempt == 2) second ?: first else first
 }
 
+private data class ParsedSingleControls(
+    val sets: List<DiceSetSpec>,
+    val modifiers: List<DiceModifierSpec>,
+)
+
 /**
  * App-wide dice utility state. Dice history and presets are intentionally independent
  * of tabletop scenes so they remain available while switching maps and encounters.
@@ -98,17 +127,18 @@ data class SingleDiceRoll(
 object DiceRollerStore {
     private const val PREFS_NAME = "dice_roller"
     private const val KEY_STATE = "state_json"
-    private const val SCHEMA_VERSION = 2
+    private const val SCHEMA_VERSION = 3
     private const val HISTORY_LIMIT = 5
     private const val MAX_PRESETS_PER_MODE = 50
     private const val MAX_PRESET_NAME_LENGTH = 40
     private const val MAX_CLUSTER_DICE = 500
     private const val MAX_SINGLE_SETS = 8
+    private const val MAX_SINGLE_MODIFIERS = 8
     private const val MAX_DICE_PER_SET = 100
     private const val MAX_SINGLE_TOTAL_DICE = 500
     private const val MIN_SIDES = 2
     private const val MAX_SIDES = 100
-    private const val MAX_ABSOLUTE_MODIFIER = 100_000
+    private const val MAX_MODIFIER_VALUE = 100_000
 
     private var appContext: Context? = null
     private var nextHistoryId = 1L
@@ -130,9 +160,7 @@ object DiceRollerStore {
         private set
 
     val singleSets = mutableStateListOf(DiceSetDraft())
-
-    var singleModifierText by mutableStateOf("0")
-        private set
+    val singleModifiers = mutableStateListOf(DiceModifierDraft())
 
     var keepMode by mutableStateOf(DiceKeepMode.NORMAL)
         private set
@@ -318,14 +346,34 @@ object DiceRollerStore {
         validationMessage = null
     }
 
-    fun updateSingleModifier(text: String) {
-        val trimmed = text.trim()
-        val allowed = buildString {
-            trimmed.forEachIndexed { index, char ->
-                if (char.isDigit() || (index == 0 && (char == '-' || char == '+'))) append(char)
-            }
-        }.take(7)
-        singleModifierText = allowed
+    fun toggleSingleModifierOperation(index: Int) {
+        if (index !in singleModifiers.indices) return
+        singleModifiers[index] = singleModifiers[index].copy(
+            operation = singleModifiers[index].operation.toggled(),
+        )
+        validationMessage = null
+    }
+
+    fun updateSingleModifierValue(index: Int, text: String) {
+        if (index !in singleModifiers.indices) return
+        singleModifiers[index] = singleModifiers[index].copy(
+            valueText = text.filter { it.isDigit() }.take(6),
+        )
+        validationMessage = null
+    }
+
+    fun addSingleModifier() {
+        if (singleModifiers.size >= MAX_SINGLE_MODIFIERS) {
+            validationMessage = "A roll can contain up to $MAX_SINGLE_MODIFIERS modifiers."
+            return
+        }
+        singleModifiers += DiceModifierDraft()
+        validationMessage = null
+    }
+
+    fun removeSingleModifier(index: Int) {
+        if (singleModifiers.size <= 1 || index !in singleModifiers.indices) return
+        singleModifiers.removeAt(index)
         validationMessage = null
     }
 
@@ -337,7 +385,7 @@ object DiceRollerStore {
 
     fun rollSingle(): Boolean {
         val parsed = parseSingleControls() ?: return false
-        return rollSingleSpec(parsed.first, parsed.second, keepMode)
+        return rollSingleSpec(parsed.sets, parsed.modifiers, keepMode)
     }
 
     fun quickRollSinglePreset(presetId: Long): Boolean {
@@ -346,7 +394,7 @@ object DiceRollerStore {
         validationMessage = null
         return rollSingleSpec(
             specs = preset.sets,
-            modifier = preset.modifier,
+            modifiers = preset.modifiers,
             requestedKeepMode = preset.keepMode,
         )
     }
@@ -363,7 +411,16 @@ object DiceRollerStore {
                 )
             },
         )
-        singleModifierText = preset.modifier.toString()
+        singleModifiers.clear()
+        singleModifiers.addAll(
+            preset.modifiers.ifEmpty { listOf(DiceModifierSpec(DiceModifierOperation.ADD, 0)) }
+                .map { spec ->
+                    DiceModifierDraft(
+                        operation = spec.operation,
+                        valueText = spec.value.toString(),
+                    )
+                },
+        )
         keepMode = preset.keepMode
         validationMessage = null
         persist()
@@ -377,8 +434,8 @@ object DiceRollerStore {
         val id = if (existingIndex >= 0) {
             singlePresets[existingIndex] = singlePresets[existingIndex].copy(
                 name = cleanName,
-                sets = parsed.first.map { it.copy() },
-                modifier = parsed.second,
+                sets = parsed.sets.map { it.copy() },
+                modifiers = parsed.modifiers.map { it.copy() },
                 keepMode = keepMode,
             )
             presetId!!
@@ -391,8 +448,8 @@ object DiceRollerStore {
                 singlePresets += SingleDicePreset(
                     id = newId,
                     name = cleanName,
-                    sets = parsed.first.map { it.copy() },
-                    modifier = parsed.second,
+                    sets = parsed.sets.map { it.copy() },
+                    modifiers = parsed.modifiers.map { it.copy() },
                     keepMode = keepMode,
                 )
             }
@@ -439,17 +496,10 @@ object DiceRollerStore {
         return true
     }
 
-    private fun parseSingleControls(): Pair<List<DiceSetSpec>, Int>? {
+    private fun parseSingleControls(): ParsedSingleControls? {
         val specs = parseSingleSets() ?: return null
-        val modifier = singleModifierText.toIntOrNull() ?: run {
-            validationMessage = "Modifier must be a whole number, such as 3 or -2."
-            return null
-        }
-        if (modifier !in -MAX_ABSOLUTE_MODIFIER..MAX_ABSOLUTE_MODIFIER) {
-            validationMessage = "Modifier is too large."
-            return null
-        }
-        return specs to modifier
+        val modifiers = parseSingleModifiers() ?: return null
+        return ParsedSingleControls(specs, modifiers)
     }
 
     private fun parseSingleSets(): List<DiceSetSpec>? {
@@ -480,13 +530,31 @@ object DiceRollerStore {
         return parsed
     }
 
+    private fun parseSingleModifiers(): List<DiceModifierSpec>? {
+        if (singleModifiers.isEmpty()) return emptyList()
+        return buildList {
+            singleModifiers.forEachIndexed { index, draft ->
+                val value = draft.valueText.toIntOrNull()
+                if (value == null || value !in 0..MAX_MODIFIER_VALUE) {
+                    validationMessage = "Modifier ${index + 1}: enter a whole number from 0 to $MAX_MODIFIER_VALUE."
+                    return null
+                }
+                add(DiceModifierSpec(draft.operation, value))
+            }
+        }
+    }
+
     private fun rollSingleSpec(
         specs: List<DiceSetSpec>,
-        modifier: Int,
+        modifiers: List<DiceModifierSpec>,
         requestedKeepMode: DiceKeepMode,
     ): Boolean {
-        val first = rollAttempt(specs, modifier)
-        val second = if (requestedKeepMode == DiceKeepMode.NORMAL) null else rollAttempt(specs, modifier)
+        val first = rollAttempt(specs, modifiers)
+        val second = if (requestedKeepMode == DiceKeepMode.NORMAL) {
+            null
+        } else {
+            rollAttempt(specs, modifiers)
+        }
         val keptAttempt = when (requestedKeepMode) {
             DiceKeepMode.NORMAL -> 1
             DiceKeepMode.ADVANTAGE -> if ((second?.total ?: Int.MIN_VALUE) > first.total) 2 else 1
@@ -494,7 +562,7 @@ object DiceRollerStore {
         }
         val record = SingleDiceRoll(
             id = nextHistoryId(),
-            expression = formatExpression(specs, modifier),
+            expression = formatExpression(specs, modifiers),
             keepMode = requestedKeepMode,
             first = first,
             second = second,
@@ -515,7 +583,10 @@ object DiceRollerStore {
         return clean
     }
 
-    private fun rollAttempt(specs: List<DiceSetSpec>, modifier: Int): SingleDiceAttempt =
+    private fun rollAttempt(
+        specs: List<DiceSetSpec>,
+        modifiers: List<DiceModifierSpec>,
+    ): SingleDiceAttempt =
         SingleDiceAttempt(
             sets = specs.map { spec ->
                 DiceSetOutcome(
@@ -524,15 +595,19 @@ object DiceRollerStore {
                     results = List(spec.count) { rollDie(spec.sides) },
                 )
             },
-            modifier = modifier,
+            modifiers = modifiers.map { it.copy() },
         )
 
-    private fun formatExpression(specs: List<DiceSetSpec>, modifier: Int): String {
+    private fun formatExpression(
+        specs: List<DiceSetSpec>,
+        modifiers: List<DiceModifierSpec>,
+    ): String {
         val dice = specs.joinToString(" + ") { "${it.count}d${it.sides}" }
-        return when {
-            modifier > 0 -> "$dice + $modifier"
-            modifier < 0 -> "$dice - ${-modifier}"
-            else -> dice
+        return buildString {
+            append(dice)
+            modifiers.forEach { modifier ->
+                append(" ${modifier.operation.symbol} ${modifier.value}")
+            }
         }
     }
 
@@ -553,7 +628,6 @@ object DiceRollerStore {
             put("mode", mode.name)
             put("clusterCountText", clusterCountText)
             put("clusterSidesText", clusterSidesText)
-            put("singleModifierText", singleModifierText)
             put("keepMode", keepMode.name)
             put(
                 "singleSets",
@@ -563,6 +637,19 @@ object DiceRollerStore {
                             JSONObject().apply {
                                 put("countText", draft.countText)
                                 put("sidesText", draft.sidesText)
+                            },
+                        )
+                    }
+                },
+            )
+            put(
+                "singleModifiers",
+                JSONArray().apply {
+                    singleModifiers.forEach { draft ->
+                        put(
+                            JSONObject().apply {
+                                put("operation", draft.operation.name)
+                                put("valueText", draft.valueText)
                             },
                         )
                     }
@@ -599,7 +686,6 @@ object DiceRollerStore {
             mode = enumValueOrDefault(root.optString("mode"), DiceRollerMode.CLUSTER)
             clusterCountText = root.optString("clusterCountText", "12")
             clusterSidesText = root.optString("clusterSidesText", "6")
-            singleModifierText = root.optString("singleModifierText", "0")
             keepMode = enumValueOrDefault(root.optString("keepMode"), DiceKeepMode.NORMAL)
 
             val loadedSets = root.optJSONArray("singleSets") ?: JSONArray()
@@ -612,6 +698,27 @@ object DiceRollerStore {
                 )
             }
             if (singleSets.isEmpty()) singleSets += DiceSetDraft()
+
+            singleModifiers.clear()
+            if (version >= 3) {
+                val modifierArray = root.optJSONArray("singleModifiers") ?: JSONArray()
+                for (index in 0 until minOf(modifierArray.length(), MAX_SINGLE_MODIFIERS)) {
+                    val json = modifierArray.optJSONObject(index) ?: continue
+                    singleModifiers += DiceModifierDraft(
+                        operation = enumValueOrDefault(
+                            json.optString("operation"),
+                            DiceModifierOperation.ADD,
+                        ),
+                        valueText = json.optString("valueText", "0")
+                            .filter { it.isDigit() }
+                            .take(6)
+                            .ifBlank { "0" },
+                    )
+                }
+            } else {
+                singleModifiers += legacyModifierDraft(root.optString("singleModifierText", "0"))
+            }
+            if (singleModifiers.isEmpty()) singleModifiers += DiceModifierDraft()
 
             history.clear()
             val loadedHistory = root.optJSONArray("history") ?: JSONArray()
@@ -633,15 +740,36 @@ object DiceRollerStore {
             }
 
             nextHistoryId = (history.maxOfOrNull { it.id } ?: 0L) + 1L
-            nextPresetId = (
-                clusterPresets.maxOfOrNull { it.id }
-                    ?.coerceAtLeast(singlePresets.maxOfOrNull { it.id } ?: 0L)
-                    ?: (singlePresets.maxOfOrNull { it.id } ?: 0L)
-                ) + 1L
+            nextPresetId = maxOf(
+                clusterPresets.maxOfOrNull { it.id } ?: 0L,
+                singlePresets.maxOfOrNull { it.id } ?: 0L,
+            ) + 1L
             currentClusterRoll = history.firstOrNull { it is ClusterDiceRoll } as? ClusterDiceRoll
             currentSingleRoll = history.firstOrNull { it is SingleDiceRoll } as? SingleDiceRoll
         }
     }
+
+    private fun legacyModifierDraft(raw: String): DiceModifierDraft {
+        val signed = raw.toIntOrNull() ?: 0
+        return DiceModifierDraft(
+            operation = if (signed < 0) {
+                DiceModifierOperation.SUBTRACT
+            } else {
+                DiceModifierOperation.ADD
+            },
+            valueText = abs(signed).coerceAtMost(MAX_MODIFIER_VALUE).toString(),
+        )
+    }
+
+    private fun legacyModifierSpec(value: Int): DiceModifierSpec =
+        DiceModifierSpec(
+            operation = if (value < 0) {
+                DiceModifierOperation.SUBTRACT
+            } else {
+                DiceModifierOperation.ADD
+            },
+            value = abs(value).coerceAtMost(MAX_MODIFIER_VALUE),
+        )
 
     private fun encodeClusterPreset(preset: ClusterDicePreset): JSONObject =
         JSONObject().apply {
@@ -655,7 +783,6 @@ object DiceRollerStore {
         JSONObject().apply {
             put("id", preset.id)
             put("name", preset.name)
-            put("modifier", preset.modifier)
             put("keepMode", preset.keepMode.name)
             put(
                 "sets",
@@ -670,6 +797,7 @@ object DiceRollerStore {
                     }
                 },
             )
+            put("modifiers", encodeModifierSpecs(preset.modifiers))
         }
 
     private fun decodeClusterPreset(json: JSONObject?): ClusterDicePreset? {
@@ -687,8 +815,6 @@ object DiceRollerStore {
         val id = json.optLong("id", 0L).takeIf { it > 0L } ?: return null
         val name = json.optString("name", "").trim().take(MAX_PRESET_NAME_LENGTH)
             .takeIf { it.isNotBlank() } ?: return null
-        val modifier = json.optInt("modifier", 0)
-            .takeIf { it in -MAX_ABSOLUTE_MODIFIER..MAX_ABSOLUTE_MODIFIER } ?: return null
         val keep = enumValueOrDefault(json.optString("keepMode"), DiceKeepMode.NORMAL)
         val setsJson = json.optJSONArray("sets") ?: return null
         val sets = buildList {
@@ -702,7 +828,12 @@ object DiceRollerStore {
             }
         }
         if (sets.isEmpty() || sets.sumOf { it.count } > MAX_SINGLE_TOTAL_DICE) return null
-        return SingleDicePreset(id, name, sets, modifier, keep)
+        val modifiers = if (json.has("modifiers")) {
+            decodeModifierSpecs(json.optJSONArray("modifiers"))
+        } else {
+            listOf(legacyModifierSpec(json.optInt("modifier", 0)))
+        }
+        return SingleDicePreset(id, name, sets, modifiers, keep)
     }
 
     private fun encodeHistory(entry: DiceHistoryEntry): JSONObject =
@@ -728,7 +859,6 @@ object DiceRollerStore {
 
     private fun encodeAttempt(attempt: SingleDiceAttempt): JSONObject =
         JSONObject().apply {
-            put("modifier", attempt.modifier)
             put(
                 "sets",
                 JSONArray().apply {
@@ -743,7 +873,40 @@ object DiceRollerStore {
                     }
                 },
             )
+            put("modifiers", encodeModifierSpecs(attempt.modifiers))
         }
+
+    private fun encodeModifierSpecs(modifiers: List<DiceModifierSpec>): JSONArray =
+        JSONArray().apply {
+            modifiers.forEach { modifier ->
+                put(
+                    JSONObject().apply {
+                        put("operation", modifier.operation.name)
+                        put("value", modifier.value)
+                    },
+                )
+            }
+        }
+
+    private fun decodeModifierSpecs(array: JSONArray?): List<DiceModifierSpec> {
+        array ?: return emptyList()
+        return buildList {
+            for (index in 0 until minOf(array.length(), MAX_SINGLE_MODIFIERS)) {
+                val json = array.optJSONObject(index) ?: continue
+                val value = json.optInt("value", -1)
+                if (value !in 0..MAX_MODIFIER_VALUE) continue
+                add(
+                    DiceModifierSpec(
+                        operation = enumValueOrDefault(
+                            json.optString("operation"),
+                            DiceModifierOperation.ADD,
+                        ),
+                        value = value,
+                    ),
+                )
+            }
+        }
+    }
 
     private fun decodeHistory(json: JSONObject?): DiceHistoryEntry? {
         json ?: return null
@@ -800,9 +963,14 @@ object DiceRollerStore {
             }
         }
         if (sets.isEmpty()) return null
+        val modifiers = if (json.has("modifiers")) {
+            decodeModifierSpecs(json.optJSONArray("modifiers"))
+        } else {
+            listOf(legacyModifierSpec(json.optInt("modifier", 0)))
+        }
         return SingleDiceAttempt(
             sets = sets,
-            modifier = json.optInt("modifier", 0),
+            modifiers = modifiers,
         )
     }
 
