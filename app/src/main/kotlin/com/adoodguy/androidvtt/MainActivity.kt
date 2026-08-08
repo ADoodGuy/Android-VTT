@@ -7,6 +7,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import com.adoodguy.androidvtt.tabletop.TabletopMapHost
 import com.adoodguy.androidvtt.tabletop.TabletopMapStore
+import com.adoodguy.androidvtt.tabletop.TabletopSceneHost
 import com.adoodguy.androidvtt.tabletop.TabletopSceneStore
 import com.adoodguy.androidvtt.tabletop.TabletopScreen
 
@@ -18,8 +19,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(color = MaterialTheme.colorScheme.background) {
-                    TabletopMapHost {
-                        TabletopScreen()
+                    TabletopSceneHost {
+                        TabletopMapHost {
+                            TabletopScreen()
+                        }
                     }
                 }
             }
