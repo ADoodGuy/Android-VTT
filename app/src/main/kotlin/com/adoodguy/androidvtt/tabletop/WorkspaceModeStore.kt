@@ -14,6 +14,7 @@ object WorkspaceModeStore {
 
     fun select(mode: TabletopMode, state: TabletopState) {
         this.mode = mode
+        state.dismissMeasurementMarkerMenu()
         when (mode) {
             TabletopMode.TOKENS -> {
                 TabletopMapStore.clearSelection()
