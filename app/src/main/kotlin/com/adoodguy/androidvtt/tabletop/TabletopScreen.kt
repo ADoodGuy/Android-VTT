@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.adoodguy.androidvtt.geometry.GridKind
 import com.adoodguy.androidvtt.geometry.HexOrientation
 import kotlin.math.abs
@@ -282,6 +283,7 @@ private fun BoxScope.MeasurementMarkerMenu(state: TabletopState) {
 
     Card(
         modifier = Modifier
+            .zIndex(30f)
             .align(Alignment.TopCenter)
             .padding(12.dp),
     ) {
