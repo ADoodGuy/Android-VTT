@@ -35,7 +35,7 @@ Add **Dice** to Tools with an app-level dice editor, persistent app-wide history
 - Supports up to eight dice sets in one expression.
 - Each set supports 1–100 dice and die sizes d2 through d100, with a 500-die expression limit.
 - Every dice set has a **+ / − contribution operator**. A + set adds its rolled subtotal to the expression; a − set subtracts its rolled subtotal from the expression.
-- This directly supports expressions such as `1d20 − 2d6 + 1d8` where the actual result of `2d6`, not a fixed number, is subtracted from the total.
+- This directly supports expressions such as `1d20 − 2d6 + 1d8`: if `2d6` rolls 9, that set contributes −9 to the final total.
 - Fixed numeric modifiers remain separate from dice sets and use explicit **+ / −** operation buttons plus non-negative whole-number values.
 - Fixed modifier terms can be added and removed independently.
 - Normal rolls evaluate the expression once.
