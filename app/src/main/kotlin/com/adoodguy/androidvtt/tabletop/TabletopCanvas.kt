@@ -42,6 +42,9 @@ fun TabletopCanvas(
     state: TabletopState,
     modifier: Modifier = Modifier,
 ) {
+    val mapConfiguration = TabletopMapStore.configuration
+    val mapImage = rememberTabletopMapImage(mapConfiguration.imageUri)
+
     Box(modifier = modifier) {
         Canvas(
             modifier = Modifier
@@ -49,6 +52,7 @@ fun TabletopCanvas(
                 .tabletopGestures(state),
         ) {
             drawRect(Color(0xFFF5F2E9))
+            drawTabletopMap(mapImage, mapConfiguration, state)
             drawGrid(state)
             state.strokes.forEach { drawStroke(it, state) }
             state.activeStroke?.let { drawStroke(it, state) }
