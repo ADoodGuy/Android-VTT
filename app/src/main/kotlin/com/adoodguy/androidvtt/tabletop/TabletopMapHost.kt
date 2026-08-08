@@ -253,7 +253,7 @@ private fun BoxScope.MapAlignmentAssistantPanel() {
         modifier = Modifier
             .align(Alignment.BottomCenter)
             .padding(12.dp)
-            .widthIn(min = 280.dp, max = 520.dp),
+            .widthIn(min = 280.dp, max = 540.dp),
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
@@ -261,19 +261,21 @@ private fun BoxScope.MapAlignmentAssistantPanel() {
         ) {
             Text("Map alignment assistant", style = MaterialTheme.typography.titleSmall)
             Text(
-                "1. Drag across the map to place the yellow crosshair on a visible map-grid intersection. " +
-                    "When you release, that point is moved onto the nearest app grid anchor.",
+                "1. Use two fingers to pan/zoom for precision. Drag with one finger anywhere on the " +
+                    "tabletop to move the yellow crosshair over the source image. Releasing places that " +
+                    "chosen map point on the nearest app-grid anchor.",
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(
-                "2. Use the orange ruler and highlighted example grid as a reference. Drag any map scale " +
-                    "handle until several printed grid lines match the guide. Scaling stays proportional and " +
-                    "keeps the crosshair fixed.",
+                "2. Use the dedicated controller around the crosshair: drag the orange square toward or " +
+                    "away from the crosshair to scale the whole map proportionally. Use the orange ruler " +
+                    "and example grid to match several printed cells at once.",
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(
-                "3. Rotate if needed, then choose Done. Future snapped map movement uses this crosshair " +
-                    "instead of the image center, so the alignment is preserved.",
+                "3. Drag the purple circular handle around its ring to rotate the map about the crosshair. " +
+                    "Choose Done when the printed grid matches. Future snapped map movement uses this " +
+                    "crosshair rather than the image center.",
                 style = MaterialTheme.typography.bodySmall,
             )
 
