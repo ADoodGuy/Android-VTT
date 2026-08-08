@@ -12,14 +12,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import com.adoodguy.androidvtt.geometry.GridKind
 import com.adoodguy.androidvtt.geometry.WorldPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -29,6 +33,7 @@ import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.round
 import kotlin.math.roundToInt
+import kotlin.math.sign
 import kotlin.math.sin
 
 private const val DEFAULT_MAP_WIDTH_CELLS = 24.0
@@ -39,6 +44,7 @@ private const val MAP_ROTATION_MAGNET_THRESHOLD_DEGREES = 3.0
 private const val MAP_SCALE_INCREMENT_CELLS = 0.5
 private const val MAP_SCALE_MAGNET_THRESHOLD_CELLS = 0.1
 private const val MAP_HANDLE_MINIMUM_CELLS = 0.1
+private const val ALIGNMENT_GUIDE_RADIUS_CELLS = 4.0
 
 enum class MapResizeAxis {
     WIDTH,
@@ -53,6 +59,10 @@ enum class MapManipulationKind {
 /**
  * A map is positioned by its center in world/cell coordinates and sized in cells.
  * Rotation is clockwise on screen, with zero degrees meaning the source image is upright.
+ *
+ * snapAnchorU/V store a point on the source image as normalized offsets from its center.
+ * -0.5 is the left/top edge, 0 is the center, and +0.5 is the right/bottom edge.
+ * The point scales and rotates with the image and is used when snapping map movement.
  */
 data class TabletopMapConfiguration(
     val imageUri: String? = null,
@@ -61,6 +71,8 @@ data class TabletopMapConfiguration(
     val centerX: Double = 0.0,
     val centerY: Double = 0.0,
     val rotationDegrees: Double = 0.0,
+    val snapAnchorU: Double = 0.0,
+    val snapAnchorV: Double = 0.0,
 ) {
     val hasImage: Boolean get() = !imageUri.isNullOrBlank()
 }
@@ -73,10 +85,14 @@ object TabletopMapStore {
     private const val KEY_CENTER_X = "center_x"
     private const val KEY_CENTER_Y = "center_y"
     private const val KEY_ROTATION = "rotation_degrees"
+    private const val KEY_SNAP_ANCHOR_U = "snap_anchor_u"
+    private const val KEY_SNAP_ANCHOR_V = "snap_anchor_v"
 
     private var appContext: Context? = null
     private var resizeBaseWidthCells = DEFAULT_MAP_WIDTH_CELLS
     private var resizeBaseHeightCells = DEFAULT_MAP_WIDTH_CELLS
+    private var resizeAlignmentAnchorWorld: WorldPoint? = null
+    private var alignmentSnapshot: TabletopMapConfiguration? = null
 
     var configuration by mutableStateOf(TabletopMapConfiguration())
         private set
@@ -85,6 +101,9 @@ object TabletopMapStore {
         private set
 
     var settingsVisible by mutableStateOf(false)
+        private set
+
+    var alignmentVisible by mutableStateOf(false)
         private set
 
     var imagePickerRequest by mutableIntStateOf(0)
@@ -114,6 +133,12 @@ object TabletopMapStore {
             rotationDegrees = prefs.getString(KEY_ROTATION, null)?.toDoubleOrNull()
                 ?.takeIf { it.isFinite() }
                 ?.let(::normalizeDegrees)
+                ?: 0.0,
+            snapAnchorU = prefs.getString(KEY_SNAP_ANCHOR_U, null)?.toDoubleOrNull()
+                ?.takeIf(::isValidAnchorCoordinate)
+                ?: 0.0,
+            snapAnchorV = prefs.getString(KEY_SNAP_ANCHOR_V, null)?.toDoubleOrNull()
+                ?.takeIf(::isValidAnchorCoordinate)
                 ?: 0.0,
         )
     }
@@ -156,16 +181,20 @@ object TabletopMapStore {
                 heightCells = (DEFAULT_MAP_WIDTH_CELLS / safeRatio)
                     .coerceIn(0.1, MAX_MAP_DIMENSION_CELLS),
                 rotationDegrees = 0.0,
+                snapAnchorU = 0.0,
+                snapAnchorV = 0.0,
             )
         }
         selected = true
         settingsVisible = false
+        alignmentVisible = false
+        alignmentSnapshot = null
         activeManipulation = null
         persist()
     }
 
     fun toggleSelection() {
-        if (!configuration.hasImage) return
+        if (!configuration.hasImage || alignmentVisible) return
         selected = !selected
         if (!selected) {
             settingsVisible = false
@@ -180,13 +209,14 @@ object TabletopMapStore {
     }
 
     fun clearSelection() {
+        if (alignmentVisible) return
         selected = false
         settingsVisible = false
         activeManipulation = null
     }
 
     fun openSettings() {
-        if (!configuration.hasImage) return
+        if (!configuration.hasImage || alignmentVisible) return
         selected = true
         settingsVisible = true
         activeManipulation = null
@@ -194,6 +224,39 @@ object TabletopMapStore {
 
     fun closeSettings() {
         settingsVisible = false
+    }
+
+    fun openAlignmentAssistant() {
+        if (!configuration.hasImage) return
+        alignmentSnapshot = configuration
+        alignmentVisible = true
+        settingsVisible = false
+        selected = true
+        activeManipulation = null
+    }
+
+    fun finishAlignment() {
+        if (!alignmentVisible) return
+        alignmentVisible = false
+        alignmentSnapshot = null
+        activeManipulation = null
+        persist()
+    }
+
+    fun cancelAlignment() {
+        alignmentSnapshot?.let { configuration = it }
+        alignmentVisible = false
+        alignmentSnapshot = null
+        activeManipulation = null
+        selected = true
+        persist()
+    }
+
+    fun resetSnapAnchorToCenter() {
+        configuration = configuration.copy(
+            snapAnchorU = 0.0,
+            snapAnchorV = 0.0,
+        )
     }
 
     fun updateGeometry(
@@ -225,6 +288,26 @@ object TabletopMapStore {
 
     fun moveByScreenDelta(state: TabletopState, delta: Offset) {
         if (!configuration.hasImage) return
+
+        if (alignmentVisible) {
+            val radians = Math.toRadians(configuration.rotationDegrees)
+            val worldDeltaX = delta.x / state.pixelsPerWorldUnit
+            val worldDeltaY = delta.y / state.pixelsPerWorldUnit
+            val localDeltaX = worldDeltaX * cos(radians) + worldDeltaY * sin(radians)
+            val localDeltaY = -worldDeltaX * sin(radians) + worldDeltaY * cos(radians)
+            val widthWorld = configuration.widthCells * state.cellSizeWorldUnits
+            val heightWorld = configuration.heightCells * state.cellSizeWorldUnits
+            if (widthWorld <= 0.0 || heightWorld <= 0.0) return
+
+            configuration = configuration.copy(
+                snapAnchorU = (configuration.snapAnchorU + localDeltaX / widthWorld)
+                    .coerceIn(-0.5, 0.5),
+                snapAnchorV = (configuration.snapAnchorV + localDeltaY / heightWorld)
+                    .coerceIn(-0.5, 0.5),
+            )
+            return
+        }
+
         configuration = configuration.copy(
             centerX = configuration.centerX + delta.x / state.pixelsPerWorldUnit,
             centerY = configuration.centerY + delta.y / state.pixelsPerWorldUnit,
@@ -233,9 +316,10 @@ object TabletopMapStore {
 
     fun finishMove(state: TabletopState) {
         if (!configuration.hasImage) return
-        val center = WorldPoint(configuration.centerX, configuration.centerY)
-        val snapped = state.snappedWorldPoint(state.worldToScreen(center))
-        configuration = configuration.copy(centerX = snapped.x, centerY = snapped.y)
+        snapConfiguredAnchorToGrid(
+            state = state,
+            force = alignmentVisible,
+        )
         persist()
     }
 
@@ -245,6 +329,7 @@ object TabletopMapStore {
         settingsVisible = false
         resizeBaseWidthCells = configuration.widthCells
         resizeBaseHeightCells = configuration.heightCells
+        resizeAlignmentAnchorWorld = null
         activeManipulation = MapManipulationKind.SCALE
     }
 
@@ -254,6 +339,13 @@ object TabletopMapStore {
         screenPoint: Offset,
     ) {
         if (!configuration.hasImage) return
+
+        if (alignmentVisible) {
+            resizeFromScreenPointAroundAlignmentAnchor(state, axis, screenPoint)
+            activeManipulation = MapManipulationKind.SCALE
+            return
+        }
+
         val center = state.worldToScreen(WorldPoint(configuration.centerX, configuration.centerY))
         val deltaX = (screenPoint.x - center.x).toDouble()
         val deltaY = (screenPoint.y - center.y).toDouble()
@@ -273,6 +365,63 @@ object TabletopMapStore {
         }
         if (baseAxisCells <= 0.0 || !baseAxisCells.isFinite()) return
 
+        val scaleFactor = boundedScaleFactor(adjustedAxisCells / baseAxisCells)
+        configuration = configuration.copy(
+            widthCells = resizeBaseWidthCells * scaleFactor,
+            heightCells = resizeBaseHeightCells * scaleFactor,
+        )
+        activeManipulation = MapManipulationKind.SCALE
+    }
+
+    private fun resizeFromScreenPointAroundAlignmentAnchor(
+        state: TabletopState,
+        axis: MapResizeAxis,
+        screenPoint: Offset,
+    ) {
+        val fixedAnchorWorld = resizeAlignmentAnchorWorld
+            ?: mapSnapAnchorWorld(configuration, state).also {
+                resizeAlignmentAnchorWorld = it
+            }
+        val anchorScreen = state.worldToScreen(fixedAnchorWorld)
+        val deltaX = (screenPoint.x - anchorScreen.x).toDouble()
+        val deltaY = (screenPoint.y - anchorScreen.y).toDouble()
+        val radians = Math.toRadians(configuration.rotationDegrees)
+        val localX = deltaX * cos(radians) + deltaY * sin(radians)
+        val localY = -deltaX * sin(radians) + deltaY * cos(radians)
+        val pixelsPerCell = state.pixelsPerWorldUnit * state.cellSizeWorldUnits
+
+        val rawScaleFactor = when (axis) {
+            MapResizeAxis.WIDTH -> {
+                val side = sign(localX).takeIf { it != 0.0 } ?: 1.0
+                val baseDistanceCells = abs((side * 0.5 - configuration.snapAnchorU) * resizeBaseWidthCells)
+                if (baseDistanceCells < 0.000_001) return
+                abs(localX) / pixelsPerCell / baseDistanceCells
+            }
+
+            MapResizeAxis.HEIGHT -> {
+                val side = sign(localY).takeIf { it != 0.0 } ?: 1.0
+                val baseDistanceCells = abs((side * 0.5 - configuration.snapAnchorV) * resizeBaseHeightCells)
+                if (baseDistanceCells < 0.000_001) return
+                abs(localY) / pixelsPerCell / baseDistanceCells
+            }
+        }
+
+        val baseAxisCells = when (axis) {
+            MapResizeAxis.WIDTH -> resizeBaseWidthCells
+            MapResizeAxis.HEIGHT -> resizeBaseHeightCells
+        }
+        val rawAxisCells = baseAxisCells * rawScaleFactor
+        val adjustedAxisCells = magneticScale(rawAxisCells, state.snapEnabled)
+        val scaleFactor = boundedScaleFactor(adjustedAxisCells / baseAxisCells)
+
+        val resized = configuration.copy(
+            widthCells = resizeBaseWidthCells * scaleFactor,
+            heightCells = resizeBaseHeightCells * scaleFactor,
+        )
+        configuration = recenterMapForFixedAnchor(resized, fixedAnchorWorld, state)
+    }
+
+    private fun boundedScaleFactor(requested: Double): Double {
         val minimumScaleFactor = maxOf(
             MAP_HANDLE_MINIMUM_CELLS / resizeBaseWidthCells,
             MAP_HANDLE_MINIMUM_CELLS / resizeBaseHeightCells,
@@ -281,14 +430,7 @@ object TabletopMapStore {
             MAX_MAP_DIMENSION_CELLS / resizeBaseWidthCells,
             MAX_MAP_DIMENSION_CELLS / resizeBaseHeightCells,
         )
-        val scaleFactor = (adjustedAxisCells / baseAxisCells)
-            .coerceIn(minimumScaleFactor, maximumScaleFactor)
-
-        configuration = configuration.copy(
-            widthCells = resizeBaseWidthCells * scaleFactor,
-            heightCells = resizeBaseHeightCells * scaleFactor,
-        )
-        activeManipulation = MapManipulationKind.SCALE
+        return requested.coerceIn(minimumScaleFactor, maximumScaleFactor)
     }
 
     fun beginRotation() {
@@ -300,21 +442,68 @@ object TabletopMapStore {
 
     fun rotateFromScreenPoint(state: TabletopState, screenPoint: Offset) {
         if (!configuration.hasImage) return
+        val fixedAnchorWorld = if (alignmentVisible) {
+            mapSnapAnchorWorld(configuration, state)
+        } else {
+            null
+        }
         val center = state.worldToScreen(WorldPoint(configuration.centerX, configuration.centerY))
         val deltaX = (screenPoint.x - center.x).toDouble()
         val deltaY = (screenPoint.y - center.y).toDouble()
         if (abs(deltaX) < 0.000_001 && abs(deltaY) < 0.000_001) return
 
         val raw = normalizeDegrees(Math.toDegrees(atan2(deltaX, -deltaY)))
-        configuration = configuration.copy(
+        var rotated = configuration.copy(
             rotationDegrees = magneticRotation(raw, state.snapEnabled),
         )
+        if (fixedAnchorWorld != null) {
+            rotated = recenterMapForFixedAnchor(rotated, fixedAnchorWorld, state)
+        }
+        configuration = rotated
         activeManipulation = MapManipulationKind.ROTATION
     }
 
     fun finishManipulation() {
         activeManipulation = null
+        resizeAlignmentAnchorWorld = null
         persist()
+    }
+
+    fun snapAnchorWorld(state: TabletopState): WorldPoint =
+        mapSnapAnchorWorld(configuration, state)
+
+    private fun snapConfiguredAnchorToGrid(state: TabletopState, force: Boolean) {
+        if (!force && !state.snapEnabled) return
+        val anchor = mapSnapAnchorWorld(configuration, state)
+        val snapped = nearestGridAnchor(state, anchor)
+        configuration = configuration.copy(
+            centerX = configuration.centerX + (snapped.x - anchor.x),
+            centerY = configuration.centerY + (snapped.y - anchor.y),
+        )
+    }
+
+    private fun nearestGridAnchor(state: TabletopState, point: WorldPoint): WorldPoint =
+        when (state.gridKind) {
+            GridKind.SQUARE -> state.squareGrid.snapToNearestAnchor(point)
+            GridKind.HEX -> state.hexGrid.snapToNearestAnchor(point)
+        }
+
+    private fun recenterMapForFixedAnchor(
+        resizedOrRotated: TabletopMapConfiguration,
+        fixedAnchorWorld: WorldPoint,
+        state: TabletopState,
+    ): TabletopMapConfiguration {
+        val localX = resizedOrRotated.snapAnchorU *
+            resizedOrRotated.widthCells * state.cellSizeWorldUnits
+        val localY = resizedOrRotated.snapAnchorV *
+            resizedOrRotated.heightCells * state.cellSizeWorldUnits
+        val radians = Math.toRadians(resizedOrRotated.rotationDegrees)
+        val rotatedX = localX * cos(radians) - localY * sin(radians)
+        val rotatedY = localX * sin(radians) + localY * cos(radians)
+        return resizedOrRotated.copy(
+            centerX = fixedAnchorWorld.x - rotatedX,
+            centerY = fixedAnchorWorld.y - rotatedY,
+        )
     }
 
     fun removeMap() {
@@ -331,6 +520,8 @@ object TabletopMapStore {
             }
         }
         configuration = TabletopMapConfiguration()
+        alignmentVisible = false
+        alignmentSnapshot = null
         clearSelection()
         persist()
     }
@@ -347,12 +538,17 @@ object TabletopMapStore {
                 putString(KEY_CENTER_X, config.centerX.toString())
                 putString(KEY_CENTER_Y, config.centerY.toString())
                 putString(KEY_ROTATION, config.rotationDegrees.toString())
+                putString(KEY_SNAP_ANCHOR_U, config.snapAnchorU.toString())
+                putString(KEY_SNAP_ANCHOR_V, config.snapAnchorV.toString())
             }
             .apply()
     }
 
     private fun isValidDimension(value: Double): Boolean =
         value.isFinite() && value in 0.1..MAX_MAP_DIMENSION_CELLS
+
+    private fun isValidAnchorCoordinate(value: Double): Boolean =
+        value.isFinite() && value in -0.5..0.5
 
     private fun magneticScale(value: Double, enabled: Boolean): Double {
         if (!enabled) return value
@@ -374,6 +570,19 @@ object TabletopMapStore {
         val normalized = degrees % 360.0
         return if (normalized < 0.0) normalized + 360.0 else normalized
     }
+}
+
+private fun mapSnapAnchorWorld(
+    configuration: TabletopMapConfiguration,
+    state: TabletopState,
+): WorldPoint {
+    val localX = configuration.snapAnchorU * configuration.widthCells * state.cellSizeWorldUnits
+    val localY = configuration.snapAnchorV * configuration.heightCells * state.cellSizeWorldUnits
+    val radians = Math.toRadians(configuration.rotationDegrees)
+    return WorldPoint(
+        x = configuration.centerX + localX * cos(radians) - localY * sin(radians),
+        y = configuration.centerY + localX * sin(radians) + localY * cos(radians),
+    )
 }
 
 fun readMapImageAspectRatio(context: Context, uri: Uri): Double? =
@@ -451,4 +660,121 @@ fun DrawScope.drawTabletopMap(
             filterQuality = FilterQuality.Medium,
         )
     }
+
+    if (TabletopMapStore.alignmentVisible) {
+        drawMapAlignmentGuides(configuration, state)
+    }
+}
+
+private fun DrawScope.drawMapAlignmentGuides(
+    configuration: TabletopMapConfiguration,
+    state: TabletopState,
+) {
+    val anchorWorld = mapSnapAnchorWorld(configuration, state)
+    val anchor = state.worldToScreen(anchorWorld)
+    val pixelsPerCell = (state.pixelsPerWorldUnit * state.cellSizeWorldUnits).toFloat()
+    val radius = pixelsPerCell * ALIGNMENT_GUIDE_RADIUS_CELLS.toFloat()
+    val guideColor = Color(0xCCFF9800)
+    val rulerColor = Color(0xFFF57C00)
+    val guideStroke = (2f * density).coerceAtLeast(2f)
+
+    val visibleBounds = state.transform.visibleWorldRect()
+    when (state.gridKind) {
+        GridKind.SQUARE -> {
+            state.squareGrid.verticalLines(visibleBounds).forEach { x ->
+                val screenX = state.worldToScreen(WorldPoint(x, anchorWorld.y)).x
+                if (abs(screenX - anchor.x) <= radius) {
+                    drawLine(
+                        color = guideColor,
+                        start = Offset(screenX, anchor.y - radius),
+                        end = Offset(screenX, anchor.y + radius),
+                        strokeWidth = guideStroke,
+                    )
+                }
+            }
+            state.squareGrid.horizontalLines(visibleBounds).forEach { y ->
+                val screenY = state.worldToScreen(WorldPoint(anchorWorld.x, y)).y
+                if (abs(screenY - anchor.y) <= radius) {
+                    drawLine(
+                        color = guideColor,
+                        start = Offset(anchor.x - radius, screenY),
+                        end = Offset(anchor.x + radius, screenY),
+                        strokeWidth = guideStroke,
+                    )
+                }
+            }
+        }
+
+        GridKind.HEX -> {
+            state.hexGrid.visibleCells(visibleBounds).forEach { coordinate ->
+                val cellCenter = state.worldToScreen(state.hexGrid.centerOf(coordinate))
+                if (
+                    abs(cellCenter.x - anchor.x) <= radius + pixelsPerCell &&
+                    abs(cellCenter.y - anchor.y) <= radius + pixelsPerCell
+                ) {
+                    val corners = state.hexGrid.corners(state.hexGrid.centerOf(coordinate))
+                    val path = Path()
+                    corners.forEachIndexed { index, point ->
+                        val screen = state.worldToScreen(point)
+                        if (index == 0) {
+                            path.moveTo(screen.x, screen.y)
+                        } else {
+                            path.lineTo(screen.x, screen.y)
+                        }
+                    }
+                    path.close()
+                    drawPath(path, guideColor, style = Stroke(guideStroke))
+                }
+            }
+        }
+    }
+
+    drawLine(
+        color = rulerColor,
+        start = anchor,
+        end = Offset(anchor.x + radius, anchor.y),
+        strokeWidth = guideStroke * 1.5f,
+    )
+    drawLine(
+        color = rulerColor,
+        start = anchor,
+        end = Offset(anchor.x, anchor.y + radius),
+        strokeWidth = guideStroke * 1.5f,
+    )
+
+    val tickHalfLength = 8f * density
+    for (index in 1..ALIGNMENT_GUIDE_RADIUS_CELLS.toInt()) {
+        val offset = pixelsPerCell * index
+        drawLine(
+            color = rulerColor,
+            start = Offset(anchor.x + offset, anchor.y - tickHalfLength),
+            end = Offset(anchor.x + offset, anchor.y + tickHalfLength),
+            strokeWidth = guideStroke,
+        )
+        drawLine(
+            color = rulerColor,
+            start = Offset(anchor.x - tickHalfLength, anchor.y + offset),
+            end = Offset(anchor.x + tickHalfLength, anchor.y + offset),
+            strokeWidth = guideStroke,
+        )
+    }
+
+    drawCircle(
+        color = Color(0xFFFFC107),
+        radius = 10f * density,
+        center = anchor,
+        style = Stroke(width = 3f * density),
+    )
+    drawLine(
+        color = Color.White,
+        start = Offset(anchor.x - 14f * density, anchor.y),
+        end = Offset(anchor.x + 14f * density, anchor.y),
+        strokeWidth = 2f * density,
+    )
+    drawLine(
+        color = Color.White,
+        start = Offset(anchor.x, anchor.y - 14f * density),
+        end = Offset(anchor.x, anchor.y + 14f * density),
+        strokeWidth = 2f * density,
+    )
 }
