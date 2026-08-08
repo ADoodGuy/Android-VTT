@@ -3,6 +3,12 @@ package com.adoodguy.androidvtt.tabletop
 import com.adoodguy.androidvtt.geometry.WorldPoint
 import kotlin.math.abs
 
+enum class TabletopMode {
+    TOKENS,
+    MAPS,
+    TOOLS,
+}
+
 enum class TabletopTool {
     PAN,
     MEASURE,
@@ -63,6 +69,9 @@ data class TabletopToken(
     val colorArgb: Long,
     val rotationDegrees: Double,
     val orientationMarkerAxis: TokenOrientationMarkerAxis,
+    val movementLocked: Boolean = false,
+    val scaleLocked: Boolean = false,
+    val rotationLocked: Boolean = false,
 ) {
     val isCircular: Boolean
         get() = abs(widthCells - heightCells) < 0.000_001
