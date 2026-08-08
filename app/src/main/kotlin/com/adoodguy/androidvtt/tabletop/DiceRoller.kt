@@ -672,7 +672,7 @@ object DiceRollerStore {
             singleSets.clear()
             val loadedSets = root.optJSONArray("singleSets") ?: JSONArray()
             for (index in 0 until minOf(loadedSets.length(), MAX_SINGLE_SETS)) {
-                decodeSetDraft(loadedSets.optJSONObject(index), version)?.let(singleSets::add)
+                decodeSetDraft(loadedSets.optJSONObject(index), version)?.let { singleSets.add(it) }
             }
             if (singleSets.isEmpty()) singleSets += DiceSetDraft()
 
@@ -680,7 +680,7 @@ object DiceRollerStore {
             if (version >= 3) {
                 val modifierArray = root.optJSONArray("singleModifiers") ?: JSONArray()
                 for (index in 0 until minOf(modifierArray.length(), MAX_SINGLE_MODIFIERS)) {
-                    decodeModifierDraft(modifierArray.optJSONObject(index))?.let(singleModifiers::add)
+                    decodeModifierDraft(modifierArray.optJSONObject(index))?.let { singleModifiers.add(it) }
                 }
             } else {
                 singleModifiers += legacyModifierDraft(root.optString("singleModifierText", "0"))
@@ -690,7 +690,7 @@ object DiceRollerStore {
             history.clear()
             val loadedHistory = root.optJSONArray("history") ?: JSONArray()
             for (index in 0 until minOf(loadedHistory.length(), HISTORY_LIMIT)) {
-                decodeHistory(loadedHistory.optJSONObject(index), version)?.let(history::add)
+                decodeHistory(loadedHistory.optJSONObject(index), version)?.let { history.add(it) }
             }
 
             clusterPresets.clear()
@@ -698,11 +698,11 @@ object DiceRollerStore {
             if (version >= 2) {
                 val clusterArray = root.optJSONArray("clusterPresets") ?: JSONArray()
                 for (index in 0 until minOf(clusterArray.length(), MAX_PRESETS_PER_MODE)) {
-                    decodeClusterPreset(clusterArray.optJSONObject(index))?.let(clusterPresets::add)
+                    decodeClusterPreset(clusterArray.optJSONObject(index))?.let { clusterPresets.add(it) }
                 }
                 val singleArray = root.optJSONArray("singlePresets") ?: JSONArray()
                 for (index in 0 until minOf(singleArray.length(), MAX_PRESETS_PER_MODE)) {
-                    decodeSinglePreset(singleArray.optJSONObject(index), version)?.let(singlePresets::add)
+                    decodeSinglePreset(singleArray.optJSONObject(index), version)?.let { singlePresets.add(it) }
                 }
             }
 
@@ -798,7 +798,7 @@ object DiceRollerStore {
         val setsJson = json.optJSONArray("sets") ?: return null
         val sets = buildList {
             for (index in 0 until minOf(setsJson.length(), MAX_SINGLE_SETS)) {
-                decodeSetSpec(setsJson.optJSONObject(index), version)?.let(::add)
+                decodeSetSpec(setsJson.optJSONObject(index), version)?.let { add(it) }
             }
         }
         if (sets.isEmpty() || sets.sumOf { it.count } > MAX_SINGLE_TOTAL_DICE) return null
@@ -884,7 +884,7 @@ object DiceRollerStore {
         val setsJson = json.optJSONArray("sets") ?: return null
         val sets = buildList {
             for (index in 0 until setsJson.length()) {
-                decodeOutcome(setsJson.optJSONObject(index), version)?.let(::add)
+                decodeOutcome(setsJson.optJSONObject(index), version)?.let { add(it) }
             }
         }
         if (sets.isEmpty()) return null
@@ -931,7 +931,7 @@ object DiceRollerStore {
         array ?: return emptyList()
         return buildList {
             for (index in 0 until minOf(array.length(), MAX_SINGLE_MODIFIERS)) {
-                decodeModifierSpec(array.optJSONObject(index))?.let(::add)
+                decodeModifierSpec(array.optJSONObject(index))?.let { add(it) }
             }
         }
     }
