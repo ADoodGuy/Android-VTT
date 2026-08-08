@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import com.adoodguy.androidvtt.tabletop.DiceRollerStore
 import com.adoodguy.androidvtt.tabletop.TabletopMapHost
 import com.adoodguy.androidvtt.tabletop.TabletopMapStore
 import com.adoodguy.androidvtt.tabletop.TabletopSceneHost
@@ -16,6 +17,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         TabletopMapStore.initialize(applicationContext)
         TabletopSceneStore.initialize(applicationContext)
+        DiceRollerStore.initialize(applicationContext)
         setContent {
             MaterialTheme {
                 Surface(color = MaterialTheme.colorScheme.background) {
@@ -31,6 +33,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         TabletopSceneStore.saveCurrent()
+        DiceRollerStore.save()
         super.onStop()
     }
 }

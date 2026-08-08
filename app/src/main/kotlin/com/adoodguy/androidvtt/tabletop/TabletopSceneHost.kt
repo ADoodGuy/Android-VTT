@@ -51,6 +51,20 @@ fun TabletopSceneHost(content: @Composable () -> Unit) {
         if (managerVisible) {
             SceneManagerPanel(onClose = { managerVisible = false })
         }
+
+        if (DiceToolUiStore.active && !DiceRollerStore.panelVisible) {
+            Button(
+                onClick = DiceRollerStore::openPanel,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 68.dp)
+                    .zIndex(85f),
+            ) {
+                Text("Open dice roller")
+            }
+        }
+
+        DiceRollerOverlay()
     }
 }
 

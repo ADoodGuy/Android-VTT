@@ -15,6 +15,9 @@ object WorkspaceModeStore {
     fun select(mode: TabletopMode, state: TabletopState) {
         this.mode = mode
         state.dismissMeasurementMarkerMenu()
+        if (mode != TabletopMode.TOOLS) {
+            DiceToolUiStore.syncActive(false)
+        }
         when (mode) {
             TabletopMode.TOKENS -> {
                 TabletopMapStore.clearSelection()
