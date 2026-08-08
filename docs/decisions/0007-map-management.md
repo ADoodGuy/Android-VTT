@@ -54,7 +54,7 @@ In Maps mode:
 - a rotation handle sits beyond the top edge and rotates the map around its center,
 - live size/rotation text appears while a manipulation handle is active.
 
-Map movement uses the same grid-position snapping as tokens. Direct scaling and rotation use the same magnetic snapping model as token manipulation: the controlling map dimension has 0.5-cell scale anchors with a 0.1-cell magnetic window, and rotation has 15-degree anchors with a 3-degree magnetic window. When **Snap to grid** is disabled, map movement, scaling, and rotation are all free.
+Map movement uses the same grid-position snapping as tokens. Direct scaling and rotation use the same magnetic snapping model as token manipulation: the controlling map dimension has 0.5-cell scale anchors with a 0.1-cell magnetic window, and rotation has 15-degree anchors with a 3-degree magnetic window. When **Snap to grid** is disabled, map movement, scaling, and rotation are all free. Direct proportional scaling allows map dimensions down to the same 0.1-cell minimum accepted by the numeric map settings, which keeps the aspect-ratio constraint valid even for unusual custom proportions.
 
 The map settings panel supports replacing the image, numeric width/height, numeric center X/Y, numeric rotation, resetting position/rotation, and removing the map. Numeric width and height remain independently editable so intentionally distorted or pre-corrected source images can be configured; subsequent direct handle scaling preserves whatever proportion is currently configured.
 
