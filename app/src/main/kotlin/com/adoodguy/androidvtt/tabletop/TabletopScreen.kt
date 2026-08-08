@@ -111,8 +111,6 @@ private fun PrototypeToolbar(state: TabletopState) {
             }
         }
 
-        // This row always occupies the same height. Only its contents change, so
-        // switching workspace modes never resizes or shifts the tabletop viewport.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -415,6 +413,29 @@ private fun BoxScope.TokenContextMenu(state: TabletopState) {
                 label = { Text("Name") },
                 singleLine = true,
             )
+
+            Text("Direct controls", style = MaterialTheme.typography.labelMedium)
+            FilterChip(
+                selected = token.movementLocked,
+                onClick = state::toggleSelectedTokenMovementLock,
+                label = { Text("Lock movement") },
+            )
+            FilterChip(
+                selected = token.scaleLocked,
+                onClick = state::toggleSelectedTokenScaleLock,
+                label = { Text("Lock scaling") },
+            )
+            FilterChip(
+                selected = token.rotationLocked,
+                onClick = state::toggleSelectedTokenRotationLock,
+                label = { Text("Lock rotation") },
+            )
+            Text(
+                "Locked direct controls are disabled and their handles are hidden. Numeric settings remain available for deliberate corrections.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+
+            HorizontalDivider()
 
             Text("Size", style = MaterialTheme.typography.labelMedium)
             Box {
