@@ -1,5 +1,6 @@
 package com.adoodguy.androidvtt.tabletop
 
+import androidx.compose.runtime.mutableStateListOf
 import com.adoodguy.androidvtt.geometry.WorldPoint
 import kotlin.math.abs
 
@@ -97,9 +98,11 @@ data class TabletopToken(
         }
 }
 
-data class MeasurementPath(
-    val points: List<WorldPoint>,
-)
+class MeasurementPath(points: List<WorldPoint>) {
+    val points = mutableStateListOf<WorldPoint>().apply {
+        addAll(points)
+    }
+}
 
 data class DrawingStroke(
     val points: List<WorldPoint>,
