@@ -51,6 +51,21 @@ data class SingleDiceAttempt(
     val total: Int get() = sets.sumOf { it.subtotal } + modifier
 }
 
+data class ClusterDicePreset(
+    val id: Long,
+    val name: String,
+    val count: Int,
+    val sides: Int,
+)
+
+data class SingleDicePreset(
+    val id: Long,
+    val name: String,
+    val sets: List<DiceSetSpec>,
+    val modifier: Int,
+    val keepMode: DiceKeepMode,
+)
+
 sealed interface DiceHistoryEntry {
     val id: Long
 }
@@ -77,13 +92,16 @@ data class SingleDiceRoll(
 }
 
 /**
- * App-wide dice utility state. Dice history is intentionally independent of tabletop scenes.
+ * App-wide dice utility state. Dice history and presets are intentionally independent
+ * of tabletop scenes so they remain available while switching maps and encounters.
  */
 object DiceRollerStore {
     private const val PREFS_NAME = "dice_roller"
     private const val KEY_STATE = "state_json"
-    private const val SCHEMA_VERSION = 1
+    private const val SCHEMA_VERSION = 2
     private const val HISTORY_LIMIT = 5
+    private const val MAX_PRESETS_PER_MODE = 50
+    private const val MAX_PRESET_NAME_LENGTH = 40
     private const val MAX_CLUSTER_DICE = 500
     private const val MAX_SINGLE_SETS = 8
     private const val MAX_DICE_PER_SET = 100
@@ -94,6 +112,7 @@ object DiceRollerStore {
 
     private var appContext: Context? = null
     private var nextHistoryId = 1L
+    private var nextPresetId = 1L
 
     var panelVisible by mutableStateOf(false)
         private set
@@ -125,6 +144,8 @@ object DiceRollerStore {
         private set
 
     val history = mutableStateListOf<DiceHistoryEntry>()
+    val clusterPresets = mutableStateListOf<ClusterDicePreset>()
+    val singlePresets = mutableStateListOf<SingleDicePreset>()
 
     fun initialize(context: Context) {
         if (appContext != null) return
@@ -158,26 +179,69 @@ object DiceRollerStore {
     }
 
     fun rollCluster(): Boolean {
-        val count = clusterCountText.toIntOrNull()
-        val sides = clusterSidesText.toIntOrNull()
-        if (count == null || count !in 1..MAX_CLUSTER_DICE) {
-            validationMessage = "Cluster dice count must be between 1 and $MAX_CLUSTER_DICE."
-            return false
-        }
-        if (sides == null || sides !in MIN_SIDES..12) {
-            validationMessage = "Cluster die size must be between d$MIN_SIDES and d12."
-            return false
-        }
-
-        val record = ClusterDiceRoll(
-            id = nextId(),
-            sides = sides,
-            results = List(count) { rollDie(sides) },
+        val spec = parseClusterControls() ?: return false
+        return rollClusterSpec(
+            count = spec.first,
+            sides = spec.second,
+            operationLabel = "Roll",
         )
-        currentClusterRoll = record
+    }
+
+    fun quickRollClusterPreset(presetId: Long): Boolean {
+        val preset = clusterPresets.firstOrNull { it.id == presetId } ?: return false
+        mode = DiceRollerMode.CLUSTER
         validationMessage = null
-        addHistory(record)
+        return rollClusterSpec(
+            count = preset.count,
+            sides = preset.sides,
+            operationLabel = "Preset ${preset.name}",
+        )
+    }
+
+    fun loadClusterPreset(presetId: Long): Boolean {
+        val preset = clusterPresets.firstOrNull { it.id == presetId } ?: return false
+        mode = DiceRollerMode.CLUSTER
+        clusterCountText = preset.count.toString()
+        clusterSidesText = preset.sides.toString()
+        validationMessage = null
+        persist()
         return true
+    }
+
+    fun saveClusterPreset(name: String, presetId: Long? = null): Long? {
+        val cleanName = cleanPresetName(name) ?: return null
+        val spec = parseClusterControls() ?: return null
+        val existingIndex = presetId?.let { id -> clusterPresets.indexOfFirst { it.id == id } } ?: -1
+        val id = if (existingIndex >= 0) {
+            clusterPresets[existingIndex] = clusterPresets[existingIndex].copy(
+                name = cleanName,
+                count = spec.first,
+                sides = spec.second,
+            )
+            presetId!!
+        } else {
+            if (clusterPresets.size >= MAX_PRESETS_PER_MODE) {
+                validationMessage = "Cluster presets are limited to $MAX_PRESETS_PER_MODE."
+                return null
+            }
+            nextPresetId++.also { newId ->
+                clusterPresets += ClusterDicePreset(
+                    id = newId,
+                    name = cleanName,
+                    count = spec.first,
+                    sides = spec.second,
+                )
+            }
+        }
+        validationMessage = null
+        persist()
+        return id
+    }
+
+    fun deleteClusterPreset(presetId: Long): Boolean {
+        val removed = clusterPresets.removeAll { it.id == presetId }
+        if (removed) persist()
+        return removed
     }
 
     fun rerollCluster(face: Int, rule: ClusterRerollRule): Boolean {
@@ -206,7 +270,7 @@ object DiceRollerStore {
             ClusterRerollRule.OR_HIGHER -> "≥$face"
         }
         val record = ClusterDiceRoll(
-            id = nextId(),
+            id = nextHistoryId(),
             sides = current.sides,
             results = updated,
             operationLabel = "Reroll $comparison ($rerolled dice)",
@@ -272,39 +336,120 @@ object DiceRollerStore {
     }
 
     fun rollSingle(): Boolean {
-        val specs = parseSingleSets() ?: return false
-        val modifier = singleModifierText.toIntOrNull() ?: run {
-            validationMessage = "Modifier must be a whole number, such as 3 or -2."
-            return false
-        }
-        if (modifier !in -MAX_ABSOLUTE_MODIFIER..MAX_ABSOLUTE_MODIFIER) {
-            validationMessage = "Modifier is too large."
-            return false
-        }
+        val parsed = parseSingleControls() ?: return false
+        return rollSingleSpec(parsed.first, parsed.second, keepMode)
+    }
 
-        val first = rollAttempt(specs, modifier)
-        val second = if (keepMode == DiceKeepMode.NORMAL) null else rollAttempt(specs, modifier)
-        val keptAttempt = when (keepMode) {
-            DiceKeepMode.NORMAL -> 1
-            DiceKeepMode.ADVANTAGE -> if ((second?.total ?: Int.MIN_VALUE) > first.total) 2 else 1
-            DiceKeepMode.DISADVANTAGE -> if ((second?.total ?: Int.MAX_VALUE) < first.total) 2 else 1
-        }
-        val record = SingleDiceRoll(
-            id = nextId(),
-            expression = formatExpression(specs, modifier),
-            keepMode = keepMode,
-            first = first,
-            second = second,
-            keptAttempt = keptAttempt,
+    fun quickRollSinglePreset(presetId: Long): Boolean {
+        val preset = singlePresets.firstOrNull { it.id == presetId } ?: return false
+        mode = DiceRollerMode.SINGLE
+        validationMessage = null
+        return rollSingleSpec(
+            specs = preset.sets,
+            modifier = preset.modifier,
+            requestedKeepMode = preset.keepMode,
         )
-        currentSingleRoll = record
+    }
+
+    fun loadSinglePreset(presetId: Long): Boolean {
+        val preset = singlePresets.firstOrNull { it.id == presetId } ?: return false
+        mode = DiceRollerMode.SINGLE
+        singleSets.clear()
+        singleSets.addAll(
+            preset.sets.map { spec ->
+                DiceSetDraft(
+                    countText = spec.count.toString(),
+                    sidesText = spec.sides.toString(),
+                )
+            },
+        )
+        singleModifierText = preset.modifier.toString()
+        keepMode = preset.keepMode
+        validationMessage = null
+        persist()
+        return true
+    }
+
+    fun saveSinglePreset(name: String, presetId: Long? = null): Long? {
+        val cleanName = cleanPresetName(name) ?: return null
+        val parsed = parseSingleControls() ?: return null
+        val existingIndex = presetId?.let { id -> singlePresets.indexOfFirst { it.id == id } } ?: -1
+        val id = if (existingIndex >= 0) {
+            singlePresets[existingIndex] = singlePresets[existingIndex].copy(
+                name = cleanName,
+                sets = parsed.first.map { it.copy() },
+                modifier = parsed.second,
+                keepMode = keepMode,
+            )
+            presetId!!
+        } else {
+            if (singlePresets.size >= MAX_PRESETS_PER_MODE) {
+                validationMessage = "Single presets are limited to $MAX_PRESETS_PER_MODE."
+                return null
+            }
+            nextPresetId++.also { newId ->
+                singlePresets += SingleDicePreset(
+                    id = newId,
+                    name = cleanName,
+                    sets = parsed.first.map { it.copy() },
+                    modifier = parsed.second,
+                    keepMode = keepMode,
+                )
+            }
+        }
+        validationMessage = null
+        persist()
+        return id
+    }
+
+    fun deleteSinglePreset(presetId: Long): Boolean {
+        val removed = singlePresets.removeAll { it.id == presetId }
+        if (removed) persist()
+        return removed
+    }
+
+    fun save() {
+        persist()
+    }
+
+    private fun parseClusterControls(): Pair<Int, Int>? {
+        val count = clusterCountText.toIntOrNull()
+        val sides = clusterSidesText.toIntOrNull()
+        if (count == null || count !in 1..MAX_CLUSTER_DICE) {
+            validationMessage = "Cluster dice count must be between 1 and $MAX_CLUSTER_DICE."
+            return null
+        }
+        if (sides == null || sides !in MIN_SIDES..12) {
+            validationMessage = "Cluster die size must be between d$MIN_SIDES and d12."
+            return null
+        }
+        return count to sides
+    }
+
+    private fun rollClusterSpec(count: Int, sides: Int, operationLabel: String): Boolean {
+        val record = ClusterDiceRoll(
+            id = nextHistoryId(),
+            sides = sides,
+            results = List(count) { rollDie(sides) },
+            operationLabel = operationLabel,
+        )
+        currentClusterRoll = record
         validationMessage = null
         addHistory(record)
         return true
     }
 
-    fun save() {
-        persist()
+    private fun parseSingleControls(): Pair<List<DiceSetSpec>, Int>? {
+        val specs = parseSingleSets() ?: return null
+        val modifier = singleModifierText.toIntOrNull() ?: run {
+            validationMessage = "Modifier must be a whole number, such as 3 or -2."
+            return null
+        }
+        if (modifier !in -MAX_ABSOLUTE_MODIFIER..MAX_ABSOLUTE_MODIFIER) {
+            validationMessage = "Modifier is too large."
+            return null
+        }
+        return specs to modifier
     }
 
     private fun parseSingleSets(): List<DiceSetSpec>? {
@@ -335,6 +480,41 @@ object DiceRollerStore {
         return parsed
     }
 
+    private fun rollSingleSpec(
+        specs: List<DiceSetSpec>,
+        modifier: Int,
+        requestedKeepMode: DiceKeepMode,
+    ): Boolean {
+        val first = rollAttempt(specs, modifier)
+        val second = if (requestedKeepMode == DiceKeepMode.NORMAL) null else rollAttempt(specs, modifier)
+        val keptAttempt = when (requestedKeepMode) {
+            DiceKeepMode.NORMAL -> 1
+            DiceKeepMode.ADVANTAGE -> if ((second?.total ?: Int.MIN_VALUE) > first.total) 2 else 1
+            DiceKeepMode.DISADVANTAGE -> if ((second?.total ?: Int.MAX_VALUE) < first.total) 2 else 1
+        }
+        val record = SingleDiceRoll(
+            id = nextHistoryId(),
+            expression = formatExpression(specs, modifier),
+            keepMode = requestedKeepMode,
+            first = first,
+            second = second,
+            keptAttempt = keptAttempt,
+        )
+        currentSingleRoll = record
+        validationMessage = null
+        addHistory(record)
+        return true
+    }
+
+    private fun cleanPresetName(name: String): String? {
+        val clean = name.trim().replace(Regex("\\s+"), " ").take(MAX_PRESET_NAME_LENGTH)
+        if (clean.isBlank()) {
+            validationMessage = "Enter a preset name."
+            return null
+        }
+        return clean
+    }
+
     private fun rollAttempt(specs: List<DiceSetSpec>, modifier: Int): SingleDiceAttempt =
         SingleDiceAttempt(
             sets = specs.map { spec ->
@@ -358,7 +538,7 @@ object DiceRollerStore {
 
     private fun rollDie(sides: Int): Int = Random.Default.nextInt(from = 1, until = sides + 1)
 
-    private fun nextId(): Long = nextHistoryId++
+    private fun nextHistoryId(): Long = nextHistoryId++
 
     private fun addHistory(entry: DiceHistoryEntry) {
         history.add(0, entry)
@@ -392,6 +572,14 @@ object DiceRollerStore {
                 "history",
                 JSONArray().apply { history.forEach { put(encodeHistory(it)) } },
             )
+            put(
+                "clusterPresets",
+                JSONArray().apply { clusterPresets.forEach { put(encodeClusterPreset(it)) } },
+            )
+            put(
+                "singlePresets",
+                JSONArray().apply { singlePresets.forEach { put(encodeSinglePreset(it)) } },
+            )
         }
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
@@ -406,7 +594,8 @@ object DiceRollerStore {
             ?: return
         runCatching {
             val root = JSONObject(raw)
-            require(root.optInt("version", 0) in 1..SCHEMA_VERSION)
+            val version = root.optInt("version", 0)
+            require(version in 1..SCHEMA_VERSION)
             mode = enumValueOrDefault(root.optString("mode"), DiceRollerMode.CLUSTER)
             clusterCountText = root.optString("clusterCountText", "12")
             clusterSidesText = root.optString("clusterSidesText", "6")
@@ -429,10 +618,91 @@ object DiceRollerStore {
             for (index in 0 until minOf(loadedHistory.length(), HISTORY_LIMIT)) {
                 decodeHistory(loadedHistory.optJSONObject(index))?.let(history::add)
             }
+
+            clusterPresets.clear()
+            singlePresets.clear()
+            if (version >= 2) {
+                val clusterArray = root.optJSONArray("clusterPresets") ?: JSONArray()
+                for (index in 0 until minOf(clusterArray.length(), MAX_PRESETS_PER_MODE)) {
+                    decodeClusterPreset(clusterArray.optJSONObject(index))?.let(clusterPresets::add)
+                }
+                val singleArray = root.optJSONArray("singlePresets") ?: JSONArray()
+                for (index in 0 until minOf(singleArray.length(), MAX_PRESETS_PER_MODE)) {
+                    decodeSinglePreset(singleArray.optJSONObject(index))?.let(singlePresets::add)
+                }
+            }
+
             nextHistoryId = (history.maxOfOrNull { it.id } ?: 0L) + 1L
+            nextPresetId = (
+                clusterPresets.maxOfOrNull { it.id }
+                    ?.coerceAtLeast(singlePresets.maxOfOrNull { it.id } ?: 0L)
+                    ?: (singlePresets.maxOfOrNull { it.id } ?: 0L)
+                ) + 1L
             currentClusterRoll = history.firstOrNull { it is ClusterDiceRoll } as? ClusterDiceRoll
             currentSingleRoll = history.firstOrNull { it is SingleDiceRoll } as? SingleDiceRoll
         }
+    }
+
+    private fun encodeClusterPreset(preset: ClusterDicePreset): JSONObject =
+        JSONObject().apply {
+            put("id", preset.id)
+            put("name", preset.name)
+            put("count", preset.count)
+            put("sides", preset.sides)
+        }
+
+    private fun encodeSinglePreset(preset: SingleDicePreset): JSONObject =
+        JSONObject().apply {
+            put("id", preset.id)
+            put("name", preset.name)
+            put("modifier", preset.modifier)
+            put("keepMode", preset.keepMode.name)
+            put(
+                "sets",
+                JSONArray().apply {
+                    preset.sets.forEach { spec ->
+                        put(
+                            JSONObject().apply {
+                                put("count", spec.count)
+                                put("sides", spec.sides)
+                            },
+                        )
+                    }
+                },
+            )
+        }
+
+    private fun decodeClusterPreset(json: JSONObject?): ClusterDicePreset? {
+        json ?: return null
+        val id = json.optLong("id", 0L).takeIf { it > 0L } ?: return null
+        val name = json.optString("name", "").trim().take(MAX_PRESET_NAME_LENGTH)
+            .takeIf { it.isNotBlank() } ?: return null
+        val count = json.optInt("count", 0).takeIf { it in 1..MAX_CLUSTER_DICE } ?: return null
+        val sides = json.optInt("sides", 0).takeIf { it in MIN_SIDES..12 } ?: return null
+        return ClusterDicePreset(id, name, count, sides)
+    }
+
+    private fun decodeSinglePreset(json: JSONObject?): SingleDicePreset? {
+        json ?: return null
+        val id = json.optLong("id", 0L).takeIf { it > 0L } ?: return null
+        val name = json.optString("name", "").trim().take(MAX_PRESET_NAME_LENGTH)
+            .takeIf { it.isNotBlank() } ?: return null
+        val modifier = json.optInt("modifier", 0)
+            .takeIf { it in -MAX_ABSOLUTE_MODIFIER..MAX_ABSOLUTE_MODIFIER } ?: return null
+        val keep = enumValueOrDefault(json.optString("keepMode"), DiceKeepMode.NORMAL)
+        val setsJson = json.optJSONArray("sets") ?: return null
+        val sets = buildList {
+            for (index in 0 until minOf(setsJson.length(), MAX_SINGLE_SETS)) {
+                val setJson = setsJson.optJSONObject(index) ?: continue
+                val count = setJson.optInt("count", 0)
+                val sides = setJson.optInt("sides", 0)
+                if (count in 1..MAX_DICE_PER_SET && sides in MIN_SIDES..MAX_SIDES) {
+                    add(DiceSetSpec(count, sides))
+                }
+            }
+        }
+        if (sets.isEmpty() || sets.sumOf { it.count } > MAX_SINGLE_TOTAL_DICE) return null
+        return SingleDicePreset(id, name, sets, modifier, keep)
     }
 
     private fun encodeHistory(entry: DiceHistoryEntry): JSONObject =
