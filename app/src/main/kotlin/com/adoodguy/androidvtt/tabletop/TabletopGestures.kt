@@ -21,12 +21,17 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
         WorkspaceModeStore.mode,
         state.tool,
         state.drawingMode,
+        state.selectedMeasurementMarkerIndex,
         TabletopMapStore.alignmentVisible,
     ) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = true, pass = PointerEventPass.Main)
             val gestureMode = WorkspaceModeStore.mode
             val gestureTool = state.tool
+            val measurementActionOpenAtGestureStart =
+                gestureMode == TabletopMode.TOOLS &&
+                    gestureTool == TabletopTool.MEASURE &&
+                    state.selectedMeasurementMarkerIndex != null
             val alignmentGesture =
                 gestureMode == TabletopMode.MAPS && TabletopMapStore.alignmentVisible
             val eraserRadiusPx = 18.dp.toPx()
@@ -124,7 +129,10 @@ fun Modifier.tabletopGestures(state: TabletopState): Modifier =
                     TabletopMode.TOOLS -> when (gestureTool) {
                         TabletopTool.PAN -> Unit
                         TabletopTool.MEASURE -> {
-                            if (totalMovement < viewConfiguration.touchSlop) {
+                            if (
+                                !measurementActionOpenAtGestureStart &&
+                                totalMovement < viewConfiguration.touchSlop
+                            ) {
                                 state.handleMeasurementTap(down.position, markerHitRadiusPx)
                             }
                         }
