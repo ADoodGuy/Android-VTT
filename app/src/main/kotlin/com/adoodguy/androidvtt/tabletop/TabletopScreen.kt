@@ -1,5 +1,7 @@
 package com.adoodguy.androidvtt.tabletop
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -33,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.adoodguy.androidvtt.geometry.GridKind
 import com.adoodguy.androidvtt.geometry.HexOrientation
 import kotlin.math.abs
@@ -45,11 +48,10 @@ fun TabletopScreen() {
     Scaffold(
         topBar = { PrototypeToolbar(state) },
         bottomBar = { BottomBar(state) },
-    ) { padding ->
+    ) { contentPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .onSizeChanged { state.viewportSize = it },
         ) {
             TabletopCanvas(
@@ -58,12 +60,18 @@ fun TabletopScreen() {
             )
 
             WorkspaceInteractionLayer(state)
+            TabletopNotesLayer(state)
+            MeasurementOverlay(state)
 
-            measurementText(state)?.let { measurement ->
+            measurementTotalText(state)?.let { measurement ->
                 Card(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(12.dp),
+                        .padding(
+                            start = 12.dp,
+                            end = 12.dp,
+                            bottom = contentPadding.calculateBottomPadding() + 12.dp,
+                        ),
                 ) {
                     Text(
                         text = measurement,
@@ -73,7 +81,14 @@ fun TabletopScreen() {
                 }
             }
 
-            TokenContextMenu(state)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(contentPadding),
+            ) {
+                MeasurementMarkerMenu(state)
+                TokenContextMenu(state)
+            }
         }
     }
 }
@@ -83,11 +98,13 @@ private fun PrototypeToolbar(state: TabletopState) {
     var clearMenuExpanded by remember { mutableStateOf(false) }
     val hasMeasurement = state.measurement != null
     val hasDrawings = state.strokes.isNotEmpty() || state.activeStroke != null
+    val hasNotes = state.notes.isNotEmpty()
     val mapConfiguration = TabletopMapStore.configuration
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.86f))
             .padding(vertical = 6.dp),
     ) {
         Row(
@@ -115,6 +132,7 @@ private fun PrototypeToolbar(state: TabletopState) {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp)
+                .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -141,14 +159,26 @@ private fun PrototypeToolbar(state: TabletopState) {
                     TabletopTool.entries.forEach { tool ->
                         FilterChip(
                             selected = state.tool == tool,
-                            onClick = { state.tool = tool },
+                            onClick = {
+                                state.tool = tool
+                                state.dismissMeasurementMarkerMenu()
+                            },
                             label = {
                                 Text(tool.name.lowercase().replaceFirstChar { it.uppercase() })
                             },
                         )
                     }
 
-                    if (hasMeasurement || hasDrawings) {
+                    if (state.tool == TabletopTool.DRAW) {
+                        DrawingColorMenu(state)
+                        FilterChip(
+                            selected = state.drawingMode == DrawingMode.ERASER,
+                            onClick = state::toggleDrawingEraser,
+                            label = { Text("Eraser") },
+                        )
+                    }
+
+                    if (hasMeasurement || hasDrawings || hasNotes) {
                         Box {
                             Button(onClick = { clearMenuExpanded = true }) {
                                 Text("Clear")
@@ -175,6 +205,15 @@ private fun PrototypeToolbar(state: TabletopState) {
                                         },
                                     )
                                 }
+                                if (hasNotes) {
+                                    DropdownMenuItem(
+                                        text = { Text("Clear notes") },
+                                        onClick = {
+                                            state.notes.clear()
+                                            clearMenuExpanded = false
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -185,10 +224,113 @@ private fun PrototypeToolbar(state: TabletopState) {
 }
 
 @Composable
+private fun DrawingColorMenu(state: TabletopState) {
+    var expanded by remember { mutableStateOf(false) }
+    var customColorText by remember(state.brushColorArgb) {
+        mutableStateOf(formatRgbHex(state.brushColorArgb))
+    }
+    var colorError by remember { mutableStateOf<String?>(null) }
+
+    Box {
+        Button(onClick = { expanded = true }) {
+            Text("Ink ${formatRgbHex(state.brushColorArgb)}")
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("Black") },
+                onClick = {
+                    state.applyDrawingCustomColor("#000000")
+                    expanded = false
+                },
+            )
+            TokenColorPreset.entries.forEach { preset ->
+                DropdownMenuItem(
+                    text = { Text(preset.label) },
+                    onClick = {
+                        state.selectDrawingColorPreset(preset)
+                        expanded = false
+                    },
+                )
+            }
+            HorizontalDivider()
+            Column(
+                modifier = Modifier
+                    .widthIn(min = 230.dp)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                OutlinedTextField(
+                    value = customColorText,
+                    onValueChange = {
+                        customColorText = it
+                        colorError = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Custom #RRGGBB") },
+                    singleLine = true,
+                    isError = colorError != null,
+                )
+                colorError?.let {
+                    Text(
+                        text = it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+                Button(
+                    onClick = {
+                        if (state.applyDrawingCustomColor(customColorText)) {
+                            colorError = null
+                            expanded = false
+                        } else {
+                            colorError = "Use six hexadecimal digits, such as #34A8D8."
+                        }
+                    },
+                ) {
+                    Text("Apply color")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.MeasurementMarkerMenu(state: TabletopState) {
+    val index = state.selectedMeasurementMarkerIndex ?: return
+    val path = state.measurement ?: return
+    if (index !in path.points.indices) return
+
+    Card(
+        modifier = Modifier
+            .zIndex(30f)
+            .align(Alignment.TopCenter)
+            .padding(12.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Marker ${index + 1}", style = MaterialTheme.typography.labelLarge)
+            Button(onClick = state::deleteMeasurementFromSelectedMarker) {
+                Text("Delete this + later")
+            }
+            Button(onClick = state::dismissMeasurementMarkerMenu) {
+                Text("Cancel")
+            }
+        }
+    }
+}
+
+@Composable
 private fun BottomBar(state: TabletopState) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.82f))
             .padding(horizontal = 12.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,

@@ -1,5 +1,6 @@
 package com.adoodguy.androidvtt.tabletop
 
+import androidx.compose.runtime.mutableStateListOf
 import com.adoodguy.androidvtt.geometry.WorldPoint
 import kotlin.math.abs
 
@@ -13,6 +14,12 @@ enum class TabletopTool {
     PAN,
     MEASURE,
     DRAW,
+    NOTES,
+}
+
+enum class DrawingMode {
+    BRUSH,
+    ERASER,
 }
 
 enum class TokenColorPreset(
@@ -91,12 +98,22 @@ data class TabletopToken(
         }
 }
 
-data class MeasurementLine(
-    val start: WorldPoint,
-    val end: WorldPoint,
-)
+class MeasurementPath(points: List<WorldPoint>) {
+    val points = mutableStateListOf<WorldPoint>().apply {
+        addAll(points)
+    }
+}
 
 data class DrawingStroke(
     val points: List<WorldPoint>,
     val widthWorldUnits: Double,
+    val colorArgb: Long = DEFAULT_DRAWING_COLOR_ARGB,
 )
+
+data class TabletopNote(
+    val id: Long,
+    val position: WorldPoint,
+    val text: String,
+)
+
+const val DEFAULT_DRAWING_COLOR_ARGB: Long = 0xFF9C3D54L

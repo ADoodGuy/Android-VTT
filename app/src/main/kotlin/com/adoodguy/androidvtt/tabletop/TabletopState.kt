@@ -68,12 +68,21 @@ class TabletopState {
     val selectedToken: TabletopToken?
         get() = selectedTokenId?.let(::tokenById)
 
-    var measurement by mutableStateOf<MeasurementLine?>(null)
+    var measurement by mutableStateOf<MeasurementPath?>(null)
+        private set
+    var selectedMeasurementMarkerIndex by mutableStateOf<Int?>(null)
         private set
 
     val strokes = mutableStateListOf<DrawingStroke>()
     var activeStroke by mutableStateOf<DrawingStroke?>(null)
         private set
+    var drawingMode by mutableStateOf(DrawingMode.BRUSH)
+        private set
+    var brushColorArgb by mutableStateOf(DEFAULT_DRAWING_COLOR_ARGB)
+        private set
+
+    private var nextNoteId = 1L
+    val notes = mutableStateListOf<TabletopNote>()
 
     val squareGrid: SquareGridGeometry
         get() = SquareGridGeometry(cellSizeWorldUnits)
@@ -423,44 +432,169 @@ class TabletopState {
         tokenMenuVisible = false
     }
 
-    fun beginMeasurement(screenPoint: Offset) {
+    fun handleMeasurementTap(screenPoint: Offset, markerHitRadiusPx: Float) {
+        val path = measurement
+        if (path != null) {
+            val hitIndex = path.points.indices.minByOrNull { index ->
+                worldToScreen(path.points[index]).getDistanceSquared(screenPoint)
+            }
+            if (hitIndex != null) {
+                val markerScreen = worldToScreen(path.points[hitIndex])
+                if (markerScreen.getDistanceSquared(screenPoint) <= markerHitRadiusPx * markerHitRadiusPx) {
+                    selectedMeasurementMarkerIndex = hitIndex
+                    return
+                }
+            }
+        }
+
         val point = snappedWorldPoint(screenPoint)
-        measurement = MeasurementLine(point, point)
+        val existing = measurement?.points.orEmpty()
+        if (existing.lastOrNull()?.distanceTo(point)?.let { it < 0.000_001 } == true) return
+        measurement = MeasurementPath(existing + point)
+        selectedMeasurementMarkerIndex = null
         clearTokenSelection()
     }
 
-    fun updateMeasurement(screenPoint: Offset) {
-        val current = measurement ?: return
-        measurement = current.copy(end = snappedWorldPoint(screenPoint))
+    fun dismissMeasurementMarkerMenu() {
+        selectedMeasurementMarkerIndex = null
+    }
+
+    fun deleteMeasurementFromSelectedMarker() {
+        val path = measurement ?: return
+        val index = selectedMeasurementMarkerIndex ?: return
+        if (index !in path.points.indices) {
+            selectedMeasurementMarkerIndex = null
+            return
+        }
+        val remaining = path.points.take(index)
+        measurement = if (remaining.isEmpty()) null else MeasurementPath(remaining)
+        selectedMeasurementMarkerIndex = null
     }
 
     fun clearMeasurement() {
         measurement = null
+        selectedMeasurementMarkerIndex = null
     }
 
-    fun beginStroke(screenPoint: Offset) {
+    fun selectDrawingColorPreset(preset: TokenColorPreset) {
+        brushColorArgb = preset.argb
+        drawingMode = DrawingMode.BRUSH
+    }
+
+    fun applyDrawingCustomColor(hexColor: String): Boolean {
+        val color = parseRgbHex(hexColor) ?: return false
+        brushColorArgb = color
+        drawingMode = DrawingMode.BRUSH
+        return true
+    }
+
+    fun toggleDrawingEraser() {
+        drawingMode = if (drawingMode == DrawingMode.ERASER) {
+            DrawingMode.BRUSH
+        } else {
+            DrawingMode.ERASER
+        }
+        activeStroke = null
+    }
+
+    fun beginDrawing(screenPoint: Offset, eraserRadiusPx: Float) {
+        clearTokenSelection()
+        if (drawingMode == DrawingMode.ERASER) {
+            activeStroke = null
+            eraseDrawingAt(screenPoint, eraserRadiusPx)
+            return
+        }
         activeStroke = DrawingStroke(
             points = listOf(screenToWorld(screenPoint)),
             widthWorldUnits = brushWidthWorldUnits,
+            colorArgb = brushColorArgb,
         )
-        clearTokenSelection()
     }
 
-    fun appendStrokePoint(screenPoint: Offset) {
+    fun continueDrawing(screenPoint: Offset, eraserRadiusPx: Float) {
+        if (drawingMode == DrawingMode.ERASER) {
+            eraseDrawingAt(screenPoint, eraserRadiusPx)
+            return
+        }
         val current = activeStroke ?: return
         val point = screenToWorld(screenPoint)
         if (current.points.last().distanceTo(point) < brushWidthWorldUnits / 3.0) return
         activeStroke = current.copy(points = current.points + point)
     }
 
-    fun finishStroke() {
-        activeStroke?.takeIf { it.points.size >= 2 }?.let(strokes::add)
+    fun finishDrawing() {
+        if (drawingMode == DrawingMode.BRUSH) {
+            activeStroke?.takeIf { it.points.size >= 2 }?.let(strokes::add)
+        }
         activeStroke = null
+    }
+
+    private fun eraseDrawingAt(screenPoint: Offset, eraserRadiusPx: Float) {
+        if (strokes.isEmpty()) return
+        val center = screenToWorld(screenPoint)
+        val radiusWorld = eraserRadiusPx.toDouble() / pixelsPerWorldUnit
+        val rebuilt = buildList {
+            strokes.forEach { stroke ->
+                var run = mutableListOf<WorldPoint>()
+                fun flushRun() {
+                    if (run.size >= 2) {
+                        add(stroke.copy(points = run.toList()))
+                    }
+                    run = mutableListOf()
+                }
+
+                stroke.points.forEach { point ->
+                    if (point.distanceTo(center) <= radiusWorld) {
+                        flushRun()
+                    } else {
+                        run.add(point)
+                    }
+                }
+                flushRun()
+            }
+        }
+        strokes.clear()
+        strokes.addAll(rebuilt)
     }
 
     fun clearDrawings() {
         strokes.clear()
         activeStroke = null
+    }
+
+    fun addNoteAtScreenPoint(screenPoint: Offset) {
+        val id = nextNoteId++
+        notes.add(
+            TabletopNote(
+                id = id,
+                position = snappedWorldPoint(screenPoint),
+                text = "",
+            ),
+        )
+        clearTokenSelection()
+    }
+
+    fun updateNoteText(noteId: Long, text: String) {
+        updateNote(noteId) { it.copy(text = text.take(MAX_NOTE_TEXT_LENGTH)) }
+    }
+
+    fun moveNoteByScreenDelta(noteId: Long, delta: Offset) {
+        updateNote(noteId) { note ->
+            note.copy(
+                position = WorldPoint(
+                    x = note.position.x + delta.x / pixelsPerWorldUnit,
+                    y = note.position.y + delta.y / pixelsPerWorldUnit,
+                ),
+            )
+        }
+    }
+
+    fun finishNoteMove(noteId: Long) {
+        updateNote(noteId) { it.copy(position = snapWorldPoint(it.position)) }
+    }
+
+    fun deleteNote(noteId: Long) {
+        notes.removeAll { it.id == noteId }
     }
 
     internal fun createPersistentSnapshot(): TabletopSceneSnapshot =
@@ -474,6 +608,8 @@ class TabletopState {
             tokens = tokens.toList(),
             measurement = measurement,
             strokes = strokes.toList(),
+            brushColorArgb = brushColorArgb,
+            notes = notes.toList(),
         )
 
     internal fun restorePersistentSnapshot(snapshot: TabletopSceneSnapshot) {
@@ -489,9 +625,17 @@ class TabletopState {
         nextTokenId = (snapshot.tokens.maxOfOrNull { it.id } ?: 0L) + 1L
 
         measurement = snapshot.measurement
+        selectedMeasurementMarkerIndex = null
         strokes.clear()
         strokes.addAll(snapshot.strokes)
         activeStroke = null
+        drawingMode = DrawingMode.BRUSH
+        brushColorArgb = snapshot.brushColorArgb
+
+        notes.clear()
+        notes.addAll(snapshot.notes)
+        nextNoteId = (snapshot.notes.maxOfOrNull { it.id } ?: 0L) + 1L
+
         clearTokenSelection()
     }
 
@@ -505,6 +649,15 @@ class TabletopState {
         val index = tokens.indexOfFirst { it.id == tokenId }
         if (index < 0) return
         tokens[index] = transform(tokens[index])
+    }
+
+    private fun updateNote(
+        noteId: Long,
+        transform: (TabletopNote) -> TabletopNote,
+    ) {
+        val index = notes.indexOfFirst { it.id == noteId }
+        if (index < 0) return
+        notes[index] = transform(notes[index])
     }
 
     private fun isValidTokenDimension(value: Double): Boolean =
@@ -541,5 +694,12 @@ class TabletopState {
         const val TOKEN_SCALE_MAGNETIC_THRESHOLD_CELLS = 0.1
         const val TOKEN_HANDLE_MINIMUM_CELLS = 0.5
         const val TOKEN_MAXIMUM_CELLS = 100.0
+        const val MAX_NOTE_TEXT_LENGTH = 5_000
     }
+}
+
+private fun Offset.getDistanceSquared(other: Offset): Float {
+    val dx = x - other.x
+    val dy = y - other.y
+    return dx * dx + dy * dy
 }
