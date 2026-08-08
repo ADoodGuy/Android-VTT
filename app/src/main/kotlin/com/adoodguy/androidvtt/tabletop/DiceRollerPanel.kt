@@ -20,6 +20,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -111,6 +113,10 @@ private fun ClusterRollerContent() {
     var selectedFace by remember(DiceRollerStore.currentClusterRoll?.id) {
         mutableStateOf<Int?>(null)
     }
+    var presetMenuExpanded by remember { mutableStateOf(false) }
+    var presetEditorVisible by remember { mutableStateOf(false) }
+    var editingPresetId by remember { mutableStateOf<Long?>(null) }
+    var presetName by remember { mutableStateOf("") }
 
     Text(
         "Fast dice pools. Use d2 through d12, then tap a result bucket to reroll matching dice.",
@@ -144,57 +150,148 @@ private fun ClusterRollerContent() {
         }
     }
 
-    val roll = DiceRollerStore.currentClusterRoll ?: return
-    Text(
-        text = "${roll.results.size}d${roll.sides} • ${roll.operationLabel} • total ${roll.results.sum()}",
-        style = MaterialTheme.typography.titleMedium,
-    )
-    Text("Results — tap a bucket to reroll", style = MaterialTheme.typography.labelMedium)
-
     Row(
         modifier = Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        roll.countByFace().forEach { (face, count) ->
-            AssistChip(
-                onClick = { selectedFace = face },
-                label = { Text("$face: $count ${if (count == 1) "die" else "dice"}") },
-            )
+        Box {
+            Button(onClick = { presetMenuExpanded = true }) {
+                Text("Presets (${DiceRollerStore.clusterPresets.size})")
+            }
+            DropdownMenu(
+                expanded = presetMenuExpanded,
+                onDismissRequest = { presetMenuExpanded = false },
+            ) {
+                if (DiceRollerStore.clusterPresets.isEmpty()) {
+                    DropdownMenuItem(
+                        text = { Text("No Cluster presets saved") },
+                        onClick = { presetMenuExpanded = false },
+                    )
+                }
+                DiceRollerStore.clusterPresets.forEach { preset ->
+                    DropdownMenuItem(
+                        text = { Text("Roll ${preset.name} — ${preset.count}d${preset.sides}") },
+                        onClick = {
+                            DiceRollerStore.quickRollClusterPreset(preset.id)
+                            selectedFace = null
+                            presetMenuExpanded = false
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Edit ${preset.name}") },
+                        onClick = {
+                            DiceRollerStore.loadClusterPreset(preset.id)
+                            editingPresetId = preset.id
+                            presetName = preset.name
+                            presetEditorVisible = true
+                            presetMenuExpanded = false
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete ${preset.name}") },
+                        onClick = {
+                            DiceRollerStore.deleteClusterPreset(preset.id)
+                            if (editingPresetId == preset.id) {
+                                editingPresetId = null
+                                presetEditorVisible = false
+                            }
+                            presetMenuExpanded = false
+                        },
+                    )
+                    HorizontalDivider()
+                }
+            }
+        }
+        Button(
+            onClick = {
+                editingPresetId = null
+                presetName = defaultClusterPresetName()
+                presetEditorVisible = true
+            },
+        ) {
+            Text("Save preset")
         }
     }
 
-    selectedFace?.let { face ->
-        Text(
-            "Reroll dice currently showing $face:",
-            style = MaterialTheme.typography.bodySmall,
+    if (presetEditorVisible) {
+        PresetNameEditor(
+            title = if (editingPresetId == null) "Save Cluster preset" else "Edit Cluster preset",
+            name = presetName,
+            onNameChange = { presetName = it },
+            saveLabel = if (editingPresetId == null) "Save" else "Save changes",
+            onSave = {
+                if (DiceRollerStore.saveClusterPreset(presetName, editingPresetId) != null) {
+                    presetEditorVisible = false
+                    editingPresetId = null
+                }
+            },
+            onCancel = {
+                presetEditorVisible = false
+                editingPresetId = null
+            },
+            onDelete = editingPresetId?.let { id ->
+                {
+                    DiceRollerStore.deleteClusterPreset(id)
+                    presetEditorVisible = false
+                    editingPresetId = null
+                }
+            },
         )
+    }
+
+    DiceRollerStore.currentClusterRoll?.let { roll ->
+        Text(
+            text = "${roll.results.size}d${roll.sides} • ${roll.operationLabel} • total ${roll.results.sum()}",
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text("Results — tap a bucket to reroll", style = MaterialTheme.typography.labelMedium)
+
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Button(
-                onClick = {
-                    DiceRollerStore.rerollCluster(face, ClusterRerollRule.EXACT)
-                    selectedFace = null
-                },
-            ) {
-                Text("Only $face")
+            roll.countByFace().forEach { (face, count) ->
+                AssistChip(
+                    onClick = { selectedFace = face },
+                    label = { Text("$face: $count ${if (count == 1) "die" else "dice"}") },
+                )
             }
-            Button(
-                onClick = {
-                    DiceRollerStore.rerollCluster(face, ClusterRerollRule.OR_LOWER)
-                    selectedFace = null
-                },
+        }
+
+        selectedFace?.let { face ->
+            Text(
+                "Reroll dice currently showing $face:",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("$face or lower")
-            }
-            Button(
-                onClick = {
-                    DiceRollerStore.rerollCluster(face, ClusterRerollRule.OR_HIGHER)
-                    selectedFace = null
-                },
-            ) {
-                Text("$face or higher")
+                Button(
+                    onClick = {
+                        DiceRollerStore.rerollCluster(face, ClusterRerollRule.EXACT)
+                        selectedFace = null
+                    },
+                ) {
+                    Text("Only $face")
+                }
+                Button(
+                    onClick = {
+                        DiceRollerStore.rerollCluster(face, ClusterRerollRule.OR_LOWER)
+                        selectedFace = null
+                    },
+                ) {
+                    Text("$face or lower")
+                }
+                Button(
+                    onClick = {
+                        DiceRollerStore.rerollCluster(face, ClusterRerollRule.OR_HIGHER)
+                        selectedFace = null
+                    },
+                ) {
+                    Text("$face or higher")
+                }
             }
         }
     }
@@ -202,6 +299,11 @@ private fun ClusterRollerContent() {
 
 @Composable
 private fun SingleRollerContent() {
+    var presetMenuExpanded by remember { mutableStateOf(false) }
+    var presetEditorVisible by remember { mutableStateOf(false) }
+    var editingPresetId by remember { mutableStateOf<Long?>(null) }
+    var presetName by remember { mutableStateOf("") }
+
     Text(
         "Build one expression from multiple dice sets. Advantage/Disadvantage rolls the complete expression twice and keeps the higher/lower total.",
         style = MaterialTheme.typography.bodySmall,
@@ -253,7 +355,7 @@ private fun SingleRollerContent() {
             modifier = Modifier.width(120.dp),
             label = { Text("Modifier") },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
         )
     }
 
@@ -270,8 +372,96 @@ private fun SingleRollerContent() {
         }
     }
 
-    Button(onClick = { DiceRollerStore.rollSingle() }) {
-        Text("Roll expression")
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Button(onClick = { DiceRollerStore.rollSingle() }) {
+            Text("Roll expression")
+        }
+        Box {
+            Button(onClick = { presetMenuExpanded = true }) {
+                Text("Presets (${DiceRollerStore.singlePresets.size})")
+            }
+            DropdownMenu(
+                expanded = presetMenuExpanded,
+                onDismissRequest = { presetMenuExpanded = false },
+            ) {
+                if (DiceRollerStore.singlePresets.isEmpty()) {
+                    DropdownMenuItem(
+                        text = { Text("No Single presets saved") },
+                        onClick = { presetMenuExpanded = false },
+                    )
+                }
+                DiceRollerStore.singlePresets.forEach { preset ->
+                    DropdownMenuItem(
+                        text = { Text("Roll ${preset.name} — ${formatSinglePreset(preset)}") },
+                        onClick = {
+                            DiceRollerStore.quickRollSinglePreset(preset.id)
+                            presetMenuExpanded = false
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Edit ${preset.name}") },
+                        onClick = {
+                            DiceRollerStore.loadSinglePreset(preset.id)
+                            editingPresetId = preset.id
+                            presetName = preset.name
+                            presetEditorVisible = true
+                            presetMenuExpanded = false
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete ${preset.name}") },
+                        onClick = {
+                            DiceRollerStore.deleteSinglePreset(preset.id)
+                            if (editingPresetId == preset.id) {
+                                editingPresetId = null
+                                presetEditorVisible = false
+                            }
+                            presetMenuExpanded = false
+                        },
+                    )
+                    HorizontalDivider()
+                }
+            }
+        }
+        Button(
+            onClick = {
+                editingPresetId = null
+                presetName = defaultSinglePresetName()
+                presetEditorVisible = true
+            },
+        ) {
+            Text("Save preset")
+        }
+    }
+
+    if (presetEditorVisible) {
+        PresetNameEditor(
+            title = if (editingPresetId == null) "Save Single preset" else "Edit Single preset",
+            name = presetName,
+            onNameChange = { presetName = it },
+            saveLabel = if (editingPresetId == null) "Save" else "Save changes",
+            onSave = {
+                if (DiceRollerStore.saveSinglePreset(presetName, editingPresetId) != null) {
+                    presetEditorVisible = false
+                    editingPresetId = null
+                }
+            },
+            onCancel = {
+                presetEditorVisible = false
+                editingPresetId = null
+            },
+            onDelete = editingPresetId?.let { id ->
+                {
+                    DiceRollerStore.deleteSinglePreset(id)
+                    presetEditorVisible = false
+                    editingPresetId = null
+                }
+            },
+        )
     }
 
     DiceRollerStore.currentSingleRoll?.let { roll ->
@@ -301,6 +491,49 @@ private fun SingleRollerContent() {
 }
 
 @Composable
+private fun PresetNameEditor(
+    title: String,
+    name: String,
+    onNameChange: (String) -> Unit,
+    saveLabel: String,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+    onDelete: (() -> Unit)?,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            OutlinedTextField(
+                value = name,
+                onValueChange = onNameChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Preset name") },
+                singleLine = true,
+            )
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(onClick = onSave) {
+                    Text(saveLabel)
+                }
+                TextButton(onClick = onCancel) {
+                    Text("Cancel")
+                }
+                onDelete?.let { delete ->
+                    TextButton(onClick = delete) {
+                        Text("Delete preset")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun DiceHistoryContent() {
     Text("Recent rolls", style = MaterialTheme.typography.titleMedium)
     if (DiceRollerStore.history.isEmpty()) {
@@ -318,6 +551,36 @@ private fun DiceHistoryContent() {
                 Text(historyDetail(entry), style = MaterialTheme.typography.bodySmall)
             }
         }
+    }
+}
+
+private fun defaultClusterPresetName(): String =
+    "${DiceRollerStore.clusterCountText}d${DiceRollerStore.clusterSidesText}"
+
+private fun defaultSinglePresetName(): String {
+    val dice = DiceRollerStore.singleSets.joinToString(" + ") { draft ->
+        "${draft.countText.ifBlank { "?" }}d${draft.sidesText.ifBlank { "?" }}"
+    }
+    val modifier = DiceRollerStore.singleModifierText.toIntOrNull() ?: 0
+    val expression = when {
+        modifier > 0 -> "$dice + $modifier"
+        modifier < 0 -> "$dice - ${-modifier}"
+        else -> dice
+    }
+    return expression.take(40)
+}
+
+private fun formatSinglePreset(preset: SingleDicePreset): String {
+    val dice = preset.sets.joinToString(" + ") { "${it.count}d${it.sides}" }
+    val expression = when {
+        preset.modifier > 0 -> "$dice + ${preset.modifier}"
+        preset.modifier < 0 -> "$dice - ${-preset.modifier}"
+        else -> dice
+    }
+    return if (preset.keepMode == DiceKeepMode.NORMAL) {
+        expression
+    } else {
+        "$expression • ${preset.keepMode.label}"
     }
 }
 
