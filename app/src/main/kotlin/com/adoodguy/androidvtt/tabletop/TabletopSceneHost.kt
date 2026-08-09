@@ -1,5 +1,7 @@
 package com.adoodguy.androidvtt.tabletop
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -25,11 +27,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import kotlinx.coroutines.launch
 
 @Composable
 fun TabletopSceneHost(content: @Composable () -> Unit) {
@@ -72,12 +77,50 @@ fun TabletopSceneHost(content: @Composable () -> Unit) {
 private fun androidx.compose.foundation.layout.BoxScope.SceneManagerPanel(
     onClose: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val scenes = TabletopSceneStore.scenes
     val activeId = TabletopSceneStore.activeSceneId
     val activeName = TabletopSceneStore.activeSceneName
     var renameText by remember(activeId, activeName) { mutableStateOf(activeName) }
     var renameError by remember(activeId) { mutableStateOf<String?>(null) }
     var confirmDelete by remember(activeId) { mutableStateOf(false) }
+    var confirmImport by remember { mutableStateOf(false) }
+    var backupBusy by remember { mutableStateOf(false) }
+    var backupResult by remember { mutableStateOf<AppBackupResult?>(null) }
+
+    val exportBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        if (uri != null) {
+            backupBusy = true
+            backupResult = null
+            scope.launch {
+                backupResult = AppBackupStore.exportTo(context, uri)
+                backupBusy = false
+            }
+        }
+    }
+
+    val importBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            confirmImport = false
+            backupBusy = true
+            backupResult = null
+            scope.launch {
+                val result = AppBackupStore.importFrom(context, uri)
+                backupResult = result
+                backupBusy = false
+                if (result.success) {
+                    renameText = TabletopSceneStore.activeSceneName
+                    renameError = null
+                    confirmDelete = false
+                }
+            }
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -209,7 +252,64 @@ private fun androidx.compose.foundation.layout.BoxScope.SceneManagerPanel(
             }
 
             HorizontalDivider()
-            Button(onClick = onClose) {
+            Text("Portable backup", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "A backup contains all named scenes, app-wide dice presets/history, and copies of referenced map images. Restoring a backup replaces the current scene and dice libraries.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+
+            if (backupBusy) {
+                Text("Working…", style = MaterialTheme.typography.bodySmall)
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            backupResult = null
+                            exportBackupLauncher.launch("Android-VTT-backup.avtt")
+                        },
+                    ) {
+                        Text("Export backup")
+                    }
+                    Button(
+                        onClick = {
+                            backupResult = null
+                            confirmImport = true
+                        },
+                    ) {
+                        Text("Import backup")
+                    }
+                }
+            }
+
+            if (confirmImport && !backupBusy) {
+                Text(
+                    "Importing replaces every current scene and the app-wide dice presets/history. Export a backup first if you may want to return to the current data.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { importBackupLauncher.launch(arrayOf("*/*")) }) {
+                        Text("Choose backup")
+                    }
+                    TextButton(onClick = { confirmImport = false }) {
+                        Text("Cancel")
+                    }
+                }
+            }
+
+            backupResult?.let { result ->
+                Text(
+                    text = result.message,
+                    color = if (result.success) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+
+            HorizontalDivider()
+            Button(onClick = onClose, enabled = !backupBusy) {
                 Text("Close")
             }
         }
