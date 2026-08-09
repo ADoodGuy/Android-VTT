@@ -23,6 +23,9 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Bootstrap verified Gradle wrapper
+        run: sh ./scripts/bootstrap-wrapper.sh
+
       - name: Set up Gradle and validate wrapper
         uses: gradle/actions/setup-gradle@v4
 
