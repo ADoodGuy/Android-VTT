@@ -170,6 +170,14 @@ object TabletopSceneStore {
             record.id != activeSceneId && record.map.imageUri == uri
         }
 
+    fun replaceLibraryFromBackup(raw: String): Boolean {
+        val decoded = runCatching { decodeLibrary(JSONObject(raw)) }.getOrNull() ?: return false
+        installLibrary(decoded)
+        persistLibrary()
+        restoreActiveScene()
+        return true
+    }
+
     private fun restoreActiveScene() {
         val state = attachedState ?: return
         val record = records.firstOrNull { it.id == activeSceneId } ?: return
